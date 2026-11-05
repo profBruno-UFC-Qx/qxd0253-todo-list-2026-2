@@ -1,0 +1,7 @@
+:checked + label{
+    text-decoration: line-through;
+}
+
+.float-right {
+  float: right;
+}

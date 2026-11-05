@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minha Todo List</title>
+  <link rel="stylesheet" href="todo.css">
+  <script src="todo.js" defer></script>
+</head>
+
+<body>
+  <form>
+    <fieldset>
+      <select>
+        <option>Lazer</option>
+        <option>Estudo</option>
+        <option>Trabalho</option>
+      </select>
+      <label>
+        Descrição: <input type="text" required name="descricao" id="descricao">
+      </label>
+      <label>
+        Prazo: <input type="date" name="prazo" id="prazo">
+      </label>
+      <input type="submit" disabled>
+    </fieldset>
+  </form>
+  <h1> Minhas tarefas</h1>
+  <ul>
+  </ul>
+</body>
+
+</html>
