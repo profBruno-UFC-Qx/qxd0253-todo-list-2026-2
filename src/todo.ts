@@ -19,7 +19,7 @@ formElement.addEventListener("submit", (e) => {
 });
 
 descInput.addEventListener("input", () => {
-  submitButton.disabled = descInput.value.trim().length == 0;
+  submitButton.disabled = descInput.value.trim().length === 0;
 });
 
 function createTask(categoria: string, descricao: string, prazo: string) {
@@ -37,7 +37,7 @@ function createTask(categoria: string, descricao: string, prazo: string) {
   categoriaSpan.classList.add(categoria.toLocaleLowerCase());
   categoriaSpan.textContent = categoria;
 
-  const deleteButton = createDeleteButton();
+  const deleteButton = createDeleteButton(listItem);
   const editButton = createEditButton(descricaoLabel);
 
   listItem.appendChild(taskCheckbox);
@@ -70,15 +70,11 @@ function createCheckbox(taskId: string) {
   return taskCheckbox;
 }
 
-function createDeleteButton() {
+function createDeleteButton(listItem: HTMLLIElement) {
   const deleteButton = document.createElement("button");
   deleteButton.textContent = "🗑️";
   deleteButton.className = "float-right";
-  deleteButton.addEventListener("click", (e) => {
-    if(e.target instanceof HTMLElement) {
-      e.target.parentElement?.remove()
-    }
-  });
+  deleteButton.addEventListener("click", () => listItem.remove());
 
   return deleteButton;
 }
@@ -103,7 +99,6 @@ function createEditButton(descricaoLabel: HTMLLabelElement) {
   function stopEditing(salvar: boolean) {
     editing = false;
     const novoTexto = (descricaoLabel.textContent ?? "").trim();
-    // Descrição vazia não é permitida: volta ao texto anterior.
     descricaoLabel.textContent = salvar && novoTexto.length > 0 ? novoTexto : textoOriginal;
 
     editButton.textContent = "✏️";
