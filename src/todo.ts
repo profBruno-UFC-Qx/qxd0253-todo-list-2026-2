@@ -27,14 +27,34 @@ function createTask(categoria: string, descricao: string, prazo: string) {
   descricaoLabel.setAttribute("for", taskId);
   descricaoLabel.textContent = descricao;
 
+  const categoriaSpan = document.createElement("span");
+  categoriaSpan.classList.add("categoria");
+  categoriaSpan.classList.add(categoria.toLocaleLowerCase());
+  categoriaSpan.textContent = categoria;
+
   const deleteButton = createDeleteButton();
   const editButton = createEditButton(descricaoLabel);
 
   listItem.appendChild(taskCheckbox);
   listItem.appendChild(descricaoLabel);
+  listItem.appendChild(categoriaSpan);
+
+  if (prazo) {
+    const prazoTime = document.createElement("time");
+    prazoTime.className = "prazo";
+    prazoTime.dateTime = prazo;
+    prazoTime.textContent = formatarData(prazo);
+    listItem.appendChild(prazoTime);
+  }
+
   listItem.appendChild(deleteButton);
   listItem.appendChild(editButton);
   listaUl.appendChild(listItem);
+}
+
+function formatarData(dataIso: string) {
+  const [ano, mes, dia] = dataIso.split("-");
+  return `${dia}/${mes}/${ano}`;
 }
 
 function createCheckbox(taskId: string) {
