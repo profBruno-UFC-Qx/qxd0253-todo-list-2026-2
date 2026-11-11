@@ -1,9 +1,9 @@
-const listaUl = document.querySelector("ul");
-const formElement = document.querySelector("form");
-const categorySelect = document.querySelector("select");
-const descInput = document.getElementById("descricao");
-const prazoInput = document.getElementById("prazo");
-const submitButton = document.querySelector("[type=submit]");
+const listaUl = document.querySelector("ul") as HTMLUListElement;
+const formElement = document.querySelector("form") as HTMLFormElement;
+const categorySelect = document.querySelector("select") as HTMLSelectElement;
+const descInput = document.getElementById("descricao") as HTMLInputElement;
+const prazoInput = document.getElementById("prazo") as HTMLInputElement;
+const submitButton = document.querySelector("[type=submit]") as HTMLInputElement;
 
 let countTask = 0;
 
@@ -17,7 +17,7 @@ descInput.addEventListener("input", () => {
   submitButton.disabled = descInput.value.trim().length == 0;
 });
 
-function createTask(categoria, descricao, prazo) {
+function createTask(categoria: string, descricao: string, prazo: string) {
   const listItem = document.createElement("li");
 
   const taskId = `task-${++countTask}`;
@@ -37,7 +37,7 @@ function createTask(categoria, descricao, prazo) {
   listaUl.appendChild(listItem);
 }
 
-function createCheckbox(taskId) {
+function createCheckbox(taskId: string) {
   const taskCheckbox = document.createElement("input");
   taskCheckbox.type = "checkbox";
   taskCheckbox.id = taskId;
@@ -50,13 +50,15 @@ function createDeleteButton() {
   deleteButton.textContent = "🗑️";
   deleteButton.className = "float-right";
   deleteButton.addEventListener("click", (e) => {
-    e.target.parentNode.remove();
+    if(e.target instanceof HTMLElement) {
+      e.target.parentElement?.remove()
+    }
   });
 
   return deleteButton;
 }
 
-function createEditButton(descricaoLabel) {
+function createEditButton(descricaoLabel: HTMLLabelElement) {
   const editButton = document.createElement("button");
   editButton.textContent = "✏️";
   editButton.className = "float-right";
@@ -67,15 +69,17 @@ function createEditButton(descricaoLabel) {
     editing = true;
     editButton.textContent = "💾";
     descricaoLabel.removeAttribute('for');
-    descricaoLabel.contentEditable = true;
+    descricaoLabel.contentEditable = "true";
     descricaoLabel.focus();
   }
 
   function stopEditing() {
     editing = false;
     editButton.textContent = "✏️";
-    descricaoLabel.setAttribute('for', taskId);
-    descricaoLabel.contentEditable = false;
+    if(taskId) {
+      descricaoLabel.setAttribute('for', taskId);
+    }
+    descricaoLabel.contentEditable = "false";
   }
 
   editButton.addEventListener("mousedown", (e) => e.preventDefault());
