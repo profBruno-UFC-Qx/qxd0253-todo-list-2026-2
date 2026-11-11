@@ -52,8 +52,12 @@ function createTask(categoria: string, descricao: string, prazo: string) {
     listItem.appendChild(prazoTime);
   }
 
-  listItem.appendChild(deleteButton);
-  listItem.appendChild(editButton);
+  const acoes = document.createElement("span");
+  acoes.className = "acoes";
+  acoes.appendChild(editButton);
+  acoes.appendChild(deleteButton);
+
+  listItem.appendChild(acoes);
   listaUl.appendChild(listItem);
 }
 
@@ -73,7 +77,7 @@ function createCheckbox(taskId: string) {
 function createDeleteButton(listItem: HTMLLIElement) {
   const deleteButton = document.createElement("button");
   deleteButton.textContent = "🗑️";
-  deleteButton.className = "float-right";
+  deleteButton.setAttribute("aria-label", "Excluir tarefa");
   deleteButton.addEventListener("click", () => listItem.remove());
 
   return deleteButton;
@@ -82,7 +86,7 @@ function createDeleteButton(listItem: HTMLLIElement) {
 function createEditButton(descricaoLabel: HTMLLabelElement) {
   const editButton = document.createElement("button");
   editButton.textContent = "✏️";
-  editButton.className = "float-right";
+  editButton.setAttribute("aria-label", "Editar tarefa");
   let editing = false;
   let textoOriginal = "";
   const taskId = descricaoLabel.getAttribute('for')
@@ -91,6 +95,7 @@ function createEditButton(descricaoLabel: HTMLLabelElement) {
     editing = true;
     textoOriginal = descricaoLabel.textContent ?? "";
     editButton.textContent = "💾";
+    editButton.setAttribute("aria-label", "Salvar edição");
     descricaoLabel.removeAttribute('for');
     descricaoLabel.contentEditable = "plaintext-only";
     descricaoLabel.focus();
@@ -102,6 +107,7 @@ function createEditButton(descricaoLabel: HTMLLabelElement) {
     descricaoLabel.textContent = salvar && novoTexto.length > 0 ? novoTexto : textoOriginal;
 
     editButton.textContent = "✏️";
+    editButton.setAttribute("aria-label", "Editar tarefa");
     if(taskId) {
       descricaoLabel.setAttribute('for', taskId);
     }

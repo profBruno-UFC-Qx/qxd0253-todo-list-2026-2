@@ -2,8 +2,14 @@
     text-decoration: line-through;
 }
 
-.float-right {
-  float: right;
+li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.acoes {
+  margin-left: auto;
 }
 
 .categoria {
