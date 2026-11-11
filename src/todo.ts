@@ -9,8 +9,13 @@ let countTask = 0;
 
 formElement.addEventListener("submit", (e) => {
   e.preventDefault();
-  createTask(categorySelect.value, descInput.value, prazoInput.value);
-  descInput.value = "";
+  const descricao = descInput.value.trim();
+  if (descricao.length !== 0) {
+    createTask(categorySelect.value, descricao, prazoInput.value);
+    descInput.value = "";
+    submitButton.disabled = true;  
+  }
+
 });
 
 descInput.addEventListener("input", () => {
@@ -83,18 +88,24 @@ function createEditButton(descricaoLabel: HTMLLabelElement) {
   editButton.textContent = "✏️";
   editButton.className = "float-right";
   let editing = false;
+  let textoOriginal = "";
   const taskId = descricaoLabel.getAttribute('for')
 
   function startEditing() {
     editing = true;
+    textoOriginal = descricaoLabel.textContent ?? "";
     editButton.textContent = "💾";
     descricaoLabel.removeAttribute('for');
-    descricaoLabel.contentEditable = "true";
+    descricaoLabel.contentEditable = "plaintext-only";
     descricaoLabel.focus();
   }
 
-  function stopEditing() {
+  function stopEditing(salvar: boolean) {
     editing = false;
+    const novoTexto = (descricaoLabel.textContent ?? "").trim();
+    // Descrição vazia não é permitida: volta ao texto anterior.
+    descricaoLabel.textContent = salvar && novoTexto.length > 0 ? novoTexto : textoOriginal;
+
     editButton.textContent = "✏️";
     if(taskId) {
       descricaoLabel.setAttribute('for', taskId);
@@ -106,14 +117,24 @@ function createEditButton(descricaoLabel: HTMLLabelElement) {
 
   editButton.addEventListener("click", () => {
     if (editing) {
-      stopEditing();
+      stopEditing(true);
     } else {
       startEditing();
     }
   });
 
+  descricaoLabel.addEventListener('keydown', (e) => {
+    if (!editing) return;
+    if (e.key === "Enter") {
+      e.preventDefault(); // não insere quebra de linha
+      stopEditing(true);
+    } else if (e.key === "Escape") {
+      stopEditing(false);
+    }
+  });
+
   descricaoLabel.addEventListener('blur', () => {
-    if (editing) stopEditing();
+    if (editing) stopEditing(true);
   });
 
   return editButton;
