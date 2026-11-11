@@ -1,22 +1,26 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Minha Todo List</title>
-  <link rel="stylesheet" href="todo.css">
-  <script src="todo.js" defer></script>
+  <link rel="stylesheet" href="/src/assets/todo.css">
+  <script type="module" src="/src/todo.ts"></script>
+  
 </head>
 
 <body>
   <form>
     <fieldset>
-      <select>
-        <option>Lazer</option>
-        <option>Estudo</option>
-        <option>Trabalho</option>
-      </select>
+      <label>
+        Categoria:
+        <select name="categoria" id="categoria">
+          <option>Lazer</option>
+          <option>Estudo</option>
+          <option>Trabalho</option>
+        </select>
+      </label>
       <label>
         Descrição: <input type="text" required name="descricao" id="descricao">
       </label>
