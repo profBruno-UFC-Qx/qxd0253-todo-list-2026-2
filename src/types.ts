@@ -3,6 +3,11 @@ export type StrapiCollectionResponse<T> = {
   meta: Pagination;
 };
 
+export type StrapiSingleResponse<T> = {
+  data: T,
+  meta: {}
+}
+
 export type Pagination = {
   page: number;
   pageSize: number;
@@ -12,7 +17,6 @@ export type Pagination = {
 
 export type Category = {
   documentId: string;
-  id: number;
   description: string;
 };
 

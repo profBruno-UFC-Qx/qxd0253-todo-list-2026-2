@@ -1,27 +1,49 @@
 import type { Category, Task } from "./types";
-import { getAll } from "./api";
+import { getAll, createTask, deleteTask } from "./api";
 
 const listaUl = document.querySelector("ul") as HTMLUListElement;
 const formElement = document.querySelector("form") as HTMLFormElement;
 const categorySelect = document.querySelector("select") as HTMLSelectElement;
 const descInput = document.getElementById("descricao") as HTMLInputElement;
 const prazoInput = document.getElementById("prazo") as HTMLInputElement;
-const submitButton = document.querySelector("[type=submit]") as HTMLInputElement;
+const submitButton = document.querySelector(
+  "[type=submit]",
+) as HTMLInputElement;
+const deleteDialog = document.getElementById('deleteDialog') as HTMLDialogElement
+const confirmButton = document.getElementById('confirmButton') as HTMLButtonElement
+const taskToDeleteSpan = document.getElementById('toDelete') as HTMLSpanElement
+let taskToDeleteId: string = ""
 
-let countTask = 0;
+initializeCategories();
+initializeTasks();
 
-initializeCategories()
-initializeTasks()
-
-formElement.addEventListener("submit", (e) => {
+formElement.addEventListener("submit", async (e) => {
   e.preventDefault();
   const descricao = descInput.value.trim();
   if (descricao.length !== 0) {
-    createTask(categorySelect.value, descricao, prazoInput.value);
-    descInput.value = "";
-    submitButton.disabled = true;  
-  }
+    const result = await createTask(
+      {
+        description: descricao,
+        deadline: prazoInput.value,
+        done: false,
+      },
+      categorySelect.value,
+    );
 
+    if(result !== null) {
+      const newTask = result.data
+      //const option  = document.querySelector(`option[value=${categorySelect.value}]`) as HTMLOptionElement
+      //const option = document.querySelector('#mySelect option:checked')
+      const option = categorySelect.options[categorySelect.selectedIndex]
+      newTask.category = {
+        description: option.textContent,
+        documentId: categorySelect.value,
+      }
+      listaUl.appendChild(createTaskElement(newTask))
+    }
+    descInput.value = "";
+    submitButton.disabled = true;
+  }
 });
 
 descInput.addEventListener("input", () => {
@@ -29,68 +51,73 @@ descInput.addEventListener("input", () => {
 });
 
 async function initializeCategories(): Promise<void> {
-  const result = await getAll<Category>('/categories')  
-  const categories = result?.data
-  if(categories) {
-      for(let category of categories) {
-      const option = createCategoryOption(category.description, category.documentId)
-      categorySelect.appendChild(option)
+  const result = await getAll<Category>("/categories");
+  const categories = result?.data;
+  if (categories) {
+    for (let category of categories) {
+      const option = createCategoryOption(
+        category.description,
+        category.documentId,
+      );
+      categorySelect.appendChild(option);
     }
   } else {
-    window.alert('Erro ao carregar categorias')
+    window.alert("Erro ao carregar categorias");
   }
-  
-
 }
-
-
 
 async function initializeTasks(): Promise<void> {
-  const result = await getAll<Task>('/tasks?populate=category')
-  const tasks = result?.data
-  if(tasks) {
-    for(let task of tasks) {
-      const newTask = createTask(task)
-      listaUl.appendChild(newTask)
+  const result = await getAll<Task>("/tasks?populate=category");
+  const tasks = result?.data;
+  if (tasks) {
+    for (let task of tasks) {
+      const newTask = createTaskElement(task);
+      listaUl.appendChild(newTask);
     }
   }
-} 
-
-function createCategoryOption(description: string, id: string): HTMLOptionElement {
-  const newOption = document.createElement('option')
-  newOption.textContent = description
-  newOption.value = id
-  return newOption
 }
 
-function createTask({ description, category, deadline, done }: Task): HTMLLIElement {
-  const listItem = document.createElement("li");
+function createCategoryOption(
+  description: string,
+  id: string,
+): HTMLOptionElement {
+  const newOption = document.createElement("option");
+  newOption.textContent = description;
+  newOption.value = id;
+  return newOption;
+}
 
-  const taskId = `task-${++countTask}`;
+
+
+function createTaskElement(task : Task): HTMLLIElement {
+  const listItem = document.createElement("li");
+  listItem.id = task.documentId
+
+  const taskId = `task-${task.documentId}`;
   const taskCheckbox = createCheckbox(taskId);
-  taskCheckbox.checked = done
+  taskCheckbox.checked = task.done;
 
   const descricaoLabel = document.createElement("label");
   descricaoLabel.setAttribute("for", taskId);
-  descricaoLabel.textContent = description;
+  descricaoLabel.textContent = task.description;
 
   const categoriaSpan = document.createElement("span");
   categoriaSpan.classList.add("categoria");
-  categoriaSpan.classList.add(category.description.toLocaleLowerCase());
-  categoriaSpan.textContent = category.description;
+  categoriaSpan.classList.add(task.category.description.toLocaleLowerCase());
+  categoriaSpan.textContent = task.category.description;
 
-  const deleteButton = createDeleteButton(listItem);
+  const deleteButton = createDeleteButton(task);
   const editButton = createEditButton(descricaoLabel);
 
   listItem.appendChild(taskCheckbox);
   listItem.appendChild(descricaoLabel);
   listItem.appendChild(categoriaSpan);
 
-  if (deadline) {
+  if (task.deadline) {
     const prazoTime = document.createElement("time");
     prazoTime.className = "prazo";
-    prazoTime.dateTime = deadline;
-    prazoTime.textContent = formatarData(deadline);
+    prazoTime.dateTime = task.deadline;
+    prazoTime.textContent = formatarData(task.deadline);
     listItem.appendChild(prazoTime);
   }
 
@@ -100,8 +127,8 @@ function createTask({ description, category, deadline, done }: Task): HTMLLIElem
   acoes.appendChild(deleteButton);
 
   listItem.appendChild(acoes);
-  
-  return listItem
+
+  return listItem;
 }
 
 function formatarData(dataIso: string) {
@@ -117,11 +144,13 @@ function createCheckbox(taskId: string) {
   return taskCheckbox;
 }
 
-function createDeleteButton(listItem: HTMLLIElement) {
+function createDeleteButton(task: Task) {
   const deleteButton = document.createElement("button");
   deleteButton.textContent = "🗑️";
   deleteButton.setAttribute("aria-label", "Excluir tarefa");
-  deleteButton.addEventListener("click", () => listItem.remove());
+  deleteButton.addEventListener("click",  () => {
+     showDialog(task)
+  });
 
   return deleteButton;
 }
@@ -132,14 +161,14 @@ function createEditButton(descricaoLabel: HTMLLabelElement) {
   editButton.setAttribute("aria-label", "Editar tarefa");
   let editing = false;
   let textoOriginal = "";
-  const taskId = descricaoLabel.getAttribute('for')
+  const taskId = descricaoLabel.getAttribute("for");
 
   function startEditing() {
     editing = true;
     textoOriginal = descricaoLabel.textContent ?? "";
     editButton.textContent = "💾";
     editButton.setAttribute("aria-label", "Salvar edição");
-    descricaoLabel.removeAttribute('for');
+    descricaoLabel.removeAttribute("for");
     descricaoLabel.contentEditable = "plaintext-only";
     descricaoLabel.focus();
   }
@@ -147,12 +176,13 @@ function createEditButton(descricaoLabel: HTMLLabelElement) {
   function stopEditing(salvar: boolean) {
     editing = false;
     const novoTexto = (descricaoLabel.textContent ?? "").trim();
-    descricaoLabel.textContent = salvar && novoTexto.length > 0 ? novoTexto : textoOriginal;
+    descricaoLabel.textContent =
+      salvar && novoTexto.length > 0 ? novoTexto : textoOriginal;
 
     editButton.textContent = "✏️";
     editButton.setAttribute("aria-label", "Editar tarefa");
-    if(taskId) {
-      descricaoLabel.setAttribute('for', taskId);
+    if (taskId) {
+      descricaoLabel.setAttribute("for", taskId);
     }
     descricaoLabel.contentEditable = "false";
   }
@@ -167,7 +197,7 @@ function createEditButton(descricaoLabel: HTMLLabelElement) {
     }
   });
 
-  descricaoLabel.addEventListener('keydown', (e) => {
+  descricaoLabel.addEventListener("keydown", (e) => {
     if (!editing) return;
     if (e.key === "Enter") {
       e.preventDefault(); // não insere quebra de linha
@@ -177,9 +207,23 @@ function createEditButton(descricaoLabel: HTMLLabelElement) {
     }
   });
 
-  descricaoLabel.addEventListener('blur', () => {
+  descricaoLabel.addEventListener("blur", () => {
     if (editing) stopEditing(true);
   });
 
   return editButton;
 }
+
+function showDialog(task: Task) {
+  taskToDeleteId = task.documentId
+  taskToDeleteSpan.textContent = task.description
+  deleteDialog.show()
+}
+
+confirmButton.addEventListener('click', async() => {
+  const result = await deleteTask(taskToDeleteId)
+  if(result) {
+    listaUl.querySelector(`#${taskToDeleteId}`)?.remove()
+  }
+  deleteDialog.close()
+})
