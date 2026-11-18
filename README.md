@@ -622,18 +622,39 @@ li {
 É preciso ter o [Node.js](https://nodejs.org/) instalado (uma versão LTS
 recente).
 
-1. Clone o repositório e instale as dependências:
+O repositório tem dois projetos independentes:
+
+```
+todoList2026-2/
+├── frontend/   # Vite + TypeScript (a página da lista)
+└── backend/    # Strapi 5 (API REST com tarefas e categorias, banco SQLite)
+```
+
+1. Clone o repositório:
    ```bash
    git clone <url-do-repositorio>
    cd todoList2026-2
-   npm install
    ```
-2. Inicie o servidor de desenvolvimento e abra o endereço que ele mostrar
+2. Suba o backend (em um terminal). Na primeira vez, crie o `.env` a partir
+   do exemplo e troque os valores `tobemodified`:
+   ```bash
+   cd backend
+   cp .env.example .env
+   npm install
+   npm run develop
+   ```
+   O painel abre em `http://localhost:1337/admin`. Crie o usuário
+   administrador, cadastre as categorias (ex.: Lazer, Estudo, Trabalho) e, em
+   *Settings → Users & Permissions → Roles → Public*, libere `find` em
+   *Category* e `find`, `create`, `update` e `delete` em *Task*.
+3. Suba o frontend (em outro terminal) e abra o endereço que ele mostrar
    (normalmente `http://localhost:5173`):
    ```bash
+   cd frontend
+   npm install
    npm run dev
    ```
-3. Para verificar os tipos e gerar a versão final em `dist/`:
+4. Para verificar os tipos e gerar a versão final em `frontend/dist/`:
    ```bash
    npm run build
    ```
