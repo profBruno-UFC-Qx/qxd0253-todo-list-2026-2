@@ -1,5 +1,5 @@
 import type { Category, Task } from "./types";
-import { getAll, createTask, deleteTask } from "./api";
+import { getAll, createTask, deleteTask, updateTask } from "./api";
 
 const listaUl = document.querySelector("ul") as HTMLUListElement;
 const formElement = document.querySelector("form") as HTMLFormElement;
@@ -96,6 +96,14 @@ function createTaskElement(task : Task): HTMLLIElement {
   const taskId = `task-${task.documentId}`;
   const taskCheckbox = createCheckbox(taskId);
   taskCheckbox.checked = task.done;
+  taskCheckbox.addEventListener("change", async () => {
+    const result = await updateTask({ ...task, done: taskCheckbox.checked })
+    if (result) {
+      task.done = result.data.done
+    } else {
+      taskCheckbox.checked = task.done // desfaz se o backend recusar
+    }
+  })
 
   const descricaoLabel = document.createElement("label");
   descricaoLabel.setAttribute("for", taskId);
@@ -107,7 +115,7 @@ function createTaskElement(task : Task): HTMLLIElement {
   categoriaSpan.textContent = task.category.description;
 
   const deleteButton = createDeleteButton(task);
-  const editButton = createEditButton(descricaoLabel);
+  const editButton = createEditButton(task, descricaoLabel);
 
   listItem.appendChild(taskCheckbox);
   listItem.appendChild(descricaoLabel);
@@ -155,17 +163,15 @@ function createDeleteButton(task: Task) {
   return deleteButton;
 }
 
-function createEditButton(descricaoLabel: HTMLLabelElement) {
+function createEditButton(task: Task, descricaoLabel: HTMLLabelElement) {
   const editButton = document.createElement("button");
   editButton.textContent = "✏️";
   editButton.setAttribute("aria-label", "Editar tarefa");
   let editing = false;
-  let textoOriginal = "";
-  const taskId = descricaoLabel.getAttribute("for");
+  const taskId = task.documentId;
 
   function startEditing() {
     editing = true;
-    textoOriginal = descricaoLabel.textContent ?? "";
     editButton.textContent = "💾";
     editButton.setAttribute("aria-label", "Salvar edição");
     descricaoLabel.removeAttribute("for");
@@ -173,46 +179,53 @@ function createEditButton(descricaoLabel: HTMLLabelElement) {
     descricaoLabel.focus();
   }
 
-  function stopEditing(salvar: boolean) {
-    editing = false;
-    const novoTexto = (descricaoLabel.textContent ?? "").trim();
-    descricaoLabel.textContent =
-      salvar && novoTexto.length > 0 ? novoTexto : textoOriginal;
-
+  function stopEditing() {
+    editing = false
     editButton.textContent = "✏️";
     editButton.setAttribute("aria-label", "Editar tarefa");
     if (taskId) {
       descricaoLabel.setAttribute("for", taskId);
     }
     descricaoLabel.contentEditable = "false";
+    descricaoLabel.textContent = task.description; // volta ao último texto salvo
   }
 
   editButton.addEventListener("mousedown", (e) => e.preventDefault());
 
-  editButton.addEventListener("click", () => {
+  editButton.addEventListener("click", async () => {
     if (editing) {
-      stopEditing(true);
+      const result = await updateTask({ ...task, description: descricaoLabel.textContent.trim() })
+      if(result) {
+        task.description = result.data.description
+        descricaoLabel.textContent = result.data.description
+      }
     } else {
       startEditing();
     }
   });
 
-  descricaoLabel.addEventListener("keydown", (e) => {
+  descricaoLabel.addEventListener("keydown", async (e) => {
     if (!editing) return;
     if (e.key === "Enter") {
       e.preventDefault(); // não insere quebra de linha
-      stopEditing(true);
+      const result = await updateTask({ ...task, description: descricaoLabel.textContent.trim() })
+      if(result) {
+        task.description = result.data.description
+        descricaoLabel.textContent = result.data.description
+      }
+      stopEditing();
     } else if (e.key === "Escape") {
-      stopEditing(false);
+      stopEditing();
     }
   });
 
   descricaoLabel.addEventListener("blur", () => {
-    if (editing) stopEditing(true);
+    if (editing) stopEditing();
   });
 
   return editButton;
 }
+
 
 function showDialog(task: Task) {
   taskToDeleteId = task.documentId
@@ -223,7 +236,7 @@ function showDialog(task: Task) {
 confirmButton.addEventListener('click', async() => {
   const result = await deleteTask(taskToDeleteId)
   if(result) {
-    listaUl.querySelector(`#${taskToDeleteId}`)?.remove()
+    document.getElementById(taskToDeleteId)?.remove()
   }
   deleteDialog.close()
 })

@@ -19,6 +19,38 @@ export async function getAll<T>(
   }
 }
 
+export async function updateTask(
+  task: Omit<Task, "category">
+): Promise<StrapiSingleResponse<Task> | null> {
+  try {
+    const response = await fetch(`${BASE_URL}/tasks/${task.documentId}`, {
+      method: "PUT",
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        data: {
+          description: task.description,
+          done: task.done,
+          deadline: task.deadline || null,
+        },
+      }),
+    });
+    if (!response.ok) {
+      if (response.status === 400) {
+        window.alert((await response.json()).error.message);
+      }
+      throw new Error(`Response status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error((error as Error).message);
+    return null;
+  }
+}
+
 export async function createTask(
   task: Omit<Task, "id" | "documentId" | "category">,
   categoryId: string,
