@@ -1,3 +1,6 @@
+import type { Category, Task } from "./types";
+import { getAll } from "./api";
+
 const listaUl = document.querySelector("ul") as HTMLUListElement;
 const formElement = document.querySelector("form") as HTMLFormElement;
 const categorySelect = document.querySelector("select") as HTMLSelectElement;
@@ -6,6 +9,9 @@ const prazoInput = document.getElementById("prazo") as HTMLInputElement;
 const submitButton = document.querySelector("[type=submit]") as HTMLInputElement;
 
 let countTask = 0;
+
+initializeCategories()
+initializeTasks()
 
 formElement.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -22,20 +28,56 @@ descInput.addEventListener("input", () => {
   submitButton.disabled = descInput.value.trim().length === 0;
 });
 
-function createTask(categoria: string, descricao: string, prazo: string) {
+async function initializeCategories(): Promise<void> {
+  const result = await getAll<Category>('/categories')  
+  const categories = result?.data
+  if(categories) {
+      for(let category of categories) {
+      const option = createCategoryOption(category.description, category.documentId)
+      categorySelect.appendChild(option)
+    }
+  } else {
+    window.alert('Erro ao carregar categorias')
+  }
+  
+
+}
+
+
+
+async function initializeTasks(): Promise<void> {
+  const result = await getAll<Task>('/tasks?populate=category')
+  const tasks = result?.data
+  if(tasks) {
+    for(let task of tasks) {
+      const newTask = createTask(task)
+      listaUl.appendChild(newTask)
+    }
+  }
+} 
+
+function createCategoryOption(description: string, id: string): HTMLOptionElement {
+  const newOption = document.createElement('option')
+  newOption.textContent = description
+  newOption.value = id
+  return newOption
+}
+
+function createTask({ description, category, deadline, done }: Task): HTMLLIElement {
   const listItem = document.createElement("li");
 
   const taskId = `task-${++countTask}`;
   const taskCheckbox = createCheckbox(taskId);
+  taskCheckbox.checked = done
 
   const descricaoLabel = document.createElement("label");
   descricaoLabel.setAttribute("for", taskId);
-  descricaoLabel.textContent = descricao;
+  descricaoLabel.textContent = description;
 
   const categoriaSpan = document.createElement("span");
   categoriaSpan.classList.add("categoria");
-  categoriaSpan.classList.add(categoria.toLocaleLowerCase());
-  categoriaSpan.textContent = categoria;
+  categoriaSpan.classList.add(category.description.toLocaleLowerCase());
+  categoriaSpan.textContent = category.description;
 
   const deleteButton = createDeleteButton(listItem);
   const editButton = createEditButton(descricaoLabel);
@@ -44,11 +86,11 @@ function createTask(categoria: string, descricao: string, prazo: string) {
   listItem.appendChild(descricaoLabel);
   listItem.appendChild(categoriaSpan);
 
-  if (prazo) {
+  if (deadline) {
     const prazoTime = document.createElement("time");
     prazoTime.className = "prazo";
-    prazoTime.dateTime = prazo;
-    prazoTime.textContent = formatarData(prazo);
+    prazoTime.dateTime = deadline;
+    prazoTime.textContent = formatarData(deadline);
     listItem.appendChild(prazoTime);
   }
 
@@ -58,7 +100,8 @@ function createTask(categoria: string, descricao: string, prazo: string) {
   acoes.appendChild(deleteButton);
 
   listItem.appendChild(acoes);
-  listaUl.appendChild(listItem);
+  
+  return listItem
 }
 
 function formatarData(dataIso: string) {
