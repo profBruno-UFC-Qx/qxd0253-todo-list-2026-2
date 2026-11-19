@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minha Todo List</title>
+  <link rel="stylesheet" href="/src/assets/todo.css">
+  <script type="module" src="/src/todo.ts"></script>
+
+</head>
+
+<body>
+  <form>
+    <fieldset>
+      <label>
+        Categoria:
+        <select name="category" id="category">
+        </select>
+      </label>
+      <label>
+        Descrição: <input type="text" required name="description" id="description">
+      </label>
+      <label>
+        Prazo: <input type="date" name="deadline" id="deadline">
+      </label>
+      <input type="submit" disabled>
+    </fieldset>
+  </form>
+  <h1> Minhas tarefas</h1>
+  <ul>
+  </ul>
+
+  <dialog id="deleteDialog">
+    <header><button commandfor="deleteDialog" command="close">X</button></header>
+    <p>Tem certeza que deseja remover a tarefas <strong><span id="toDelete"></span></strong>?</p>
+    <footer>
+      <button id="confirmButton">Sim</button> <button id="cancelButton" commandfor="deleteDialog" command="close">Não</button>
+    </footer>
+  </dialog>
+</body>
+
+</html>
