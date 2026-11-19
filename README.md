@@ -1,4 +1,4 @@
-# Minha Todo List — do DOM com JavaScript puro a um TypeScript tipado e acessível
+# Minha Todo List — do DOM com JavaScript puro a um frontend TypeScript que conversa com uma API REST
 
 Este repositório é material de apoio da disciplina de Fundamentos de Programação
 para Web (QXD). Ele é pensado para quem está dando os primeiros passos com o
@@ -8,20 +8,23 @@ criar elementos dinamicamente e deixar o CSS reagir ao estado da página. Os
 commits seguintes levam o mesmo código para TypeScript com Vite e passam por
 uma revisão: cada um corrige um problema concreto. Ler o histórico em ordem
 ensina tanto a manipular o DOM quanto a reconhecer, no próprio código, o que
-pode dar errado.
+pode dar errado. Na parte final, as tarefas deixam de viver só na página: um
+backend em Strapi passa a guardá-las, e o frontend aprende a ler, criar,
+editar e excluir dados por HTTP, até ser dividido em módulos.
 
 ---
 
 ## 🏗️ Evolução da Arquitetura
 
 O projeto parte de um CRUD em JavaScript puro, aberto direto no navegador, e
-chega a um código TypeScript em modo estrito, verificado no build, com edição
-robusta, remoção que não depende da estrutura do HTML e botões acessíveis.
+chega a um frontend TypeScript em modo estrito, dividido em módulos, que lê e
+grava as tarefas numa API REST servida pelo Strapi.
 
 Cada estágio abaixo tem uma tag no git: `v1.0` é a versão em JavaScript
-puro, `v2.0` a migração para TypeScript, e as versões `v2.x` seguintes são
-as melhorias. Para ver o que mudou de um estágio para o outro, use
-`git diff`, por exemplo `git diff v2.0 v2.1`.
+puro, `v2.0` a migração para TypeScript, as versões `v2.x` seguintes são
+as melhorias, e as versões `v3.x` são a integração com o backend. Para ver o
+que mudou de um estágio para o outro, use `git diff`, por exemplo
+`git diff v2.0 v2.1` ou `git diff v2.4 v3.0`.
 
 ### 1. Manipulação do DOM com JavaScript puro
 
@@ -602,18 +605,426 @@ li {
   `<li>`. Com a remoção antiga (`e.target.parentElement`), ele apagaria só o
   grupo de botões. Com a do estágio 5, continua apagando a tarefa.
 
+### 7. Leitura de uma API REST com `fetch` e tipos genéricos
+
+*Versão `v3.0`. Trechos de `src/api.ts`, `src/types.ts`, `src/todo.ts` e `index.html` nessa versão.*
+
+As categorias e as tarefas deixam de estar escritas no código e passam a vir
+do backend. O `index.html` perde as três `<option>` fixas, e um módulo novo,
+`api.ts`, concentra o acesso à rede.
+
+```typescript
+const BASE_URL = "http://localhost:1337/api"
+
+export async function getAll<T>(url: string): Promise<StrapiCollectionResponse<T> | null> {
+  try {
+    const response = await fetch(`${BASE_URL}${url}`)
+    if (!response.ok) {
+      throw new Error(`Response status: ${response.status}`)
+    }
+
+    const result = await response.json()
+    return result
+  } catch (error) {
+    console.error((error as Error).message);
+    return null
+  }
+}
+```
+
+```typescript
+export type StrapiCollectionResponse<T> = {
+  data: T[];
+  meta: Pagination;
+};
+```
+
+```typescript
+async function initializeTasks(): Promise<void> {
+  const result = await getAll<Task>('/tasks?populate=category')
+  const tasks = result?.data
+  if(tasks) {
+    for(let task of tasks) {
+      const newTask = createTask(task)
+      listaUl.appendChild(newTask)
+    }
+  }
+} 
+
+function createCategoryOption(description: string, id: string): HTMLOptionElement {
+  const newOption = document.createElement('option')
+  newOption.textContent = description
+  newOption.value = id
+  return newOption
+}
+```
+
+**Por que essa decisão?**
+* O Strapi devolve toda coleção no mesmo envelope, `{ data, meta }`. Com o
+  tipo genérico `StrapiCollectionResponse<T>`, uma única função `getAll<T>`
+  serve para categorias e tarefas, e quem chama escolhe o `T`:
+  `getAll<Task>(...)` já devolve `data` tipado como `Task[]`, sem `as`.
+* O `fetch` só rejeita a promessa em falha de rede. Um 404 ou um 500 chegam
+  como resposta normal, por isso o `if (!response.ok)` transforma esses
+  status em erro.
+* `getAll` devolve `null` em vez de deixar o erro subir. Quem chama decide o
+  que fazer com `result?.data`: as categorias mostram um alerta, as tarefas
+  só deixam a lista vazia.
+* Sem `?populate=category`, o Strapi devolve a tarefa sem a relação, e
+  `category.description` quebraria ao montar a categoria. O `populate` pede
+  a categoria junto, numa requisição só.
+* O `value` de cada `<option>` passa a ser o `documentId` da categoria, não o
+  texto. O texto é para quem lê a tela; o id é o que o backend precisa para
+  gravar a relação.
+* `createTask` deixa de inserir o `<li>` na lista e passa a devolvê-lo. Quem
+  chama decide onde ele entra, e a mesma função serve tanto para as tarefas
+  que vêm do servidor quanto para as criadas no formulário.
+
+### 8. Criação e exclusão no backend, identificadas pelo `documentId`
+
+*Versão `v3.1`. Trechos de `src/api.ts`, `src/todo.ts` e `index.html` nessa versão.*
+
+O formulário passa a enviar a tarefa para o servidor com `POST`, e o 🗑️ pede
+confirmação num `<dialog>` antes de mandar o `DELETE`.
+
+```typescript
+export async function createTask(
+  task: Omit<Task, "id" | "documentId" | "category">,
+  categoryId: string,
+): Promise<StrapiSingleResponse<Task> | null> {
+  try {
+    const response = await fetch(`${BASE_URL}/tasks`, {
+      method: "POST",
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        data: {
+          description: task.description,
+          done: task.done,
+          deadline: task.deadline || null,
+          category: categoryId
+        },
+      }),
+    });
+    if (!response.ok) {
+      if (response.status === 400) {
+        window.alert((await response.json()).error.message);
+      }
+      throw new Error(`Response status: ${response.status}`);
+    }
+```
+
+```typescript
+    if(result !== null) {
+      const newTask = result.data
+      //const option  = document.querySelector(`option[value=${categorySelect.value}]`) as HTMLOptionElement
+      //const option = document.querySelector('#mySelect option:checked')
+      const option = categorySelect.options[categorySelect.selectedIndex]
+      newTask.category = {
+        description: option.textContent,
+        documentId: categorySelect.value,
+      }
+      listaUl.appendChild(createTaskElement(newTask))
+    }
+```
+
+```typescript
+function createTaskElement(task : Task): HTMLLIElement {
+  const listItem = document.createElement("li");
+  listItem.id = task.documentId
+
+  const taskId = `task-${task.documentId}`;
+```
+
+```html
+  <dialog id="deleteDialog">
+    <header><button commandfor="deleteDialog" command="close">X</button></header>
+    <p>Tem certeza que deseja remover a tarefas <strong><span id="toDelete"></span></strong>?</p>
+    <footer>
+      <button id="confirmButton">Sim</button> <button id="cancelButton" commandfor="deleteDialog" command="close">Não</button>
+    </footer>
+  </dialog>
+```
+
+```typescript
+confirmButton.addEventListener('click', async() => {
+  const result = await deleteTask(taskToDeleteId)
+  if(result) {
+    listaUl.querySelector(`#${taskToDeleteId}`)?.remove()
+  }
+  deleteDialog.close()
+})
+```
+
+**Por que essa decisão?**
+* A tarefa só aparece na lista depois que o servidor confirma
+  (`if(result !== null)`), e só some depois que o `DELETE` dá certo. Se a
+  tela mudasse antes, uma falha no backend deixaria na página uma tarefa que
+  não existe, ou esconderia uma que continua salva.
+* O `documentId` do Strapi passa a ser o id
+  da tarefa. O contador recomeçava do zero a cada recarga e não tinha relação
+  com o servidor. O `documentId` é o mesmo que aparece na URL
+  `/tasks/:documentId` do `DELETE`.
+* O tipo do que se envia sai do próprio `Task`:
+  `Omit<Task, "id" | "documentId" | "category">`. Quem gera os ids é o
+  servidor, e a categoria vai à parte, como `categoryId`. Se `Task` ganhar um
+  campo, o `createTask` fica sabendo.
+* O Strapi espera o corpo dentro de `data`, e responde 400 com uma mensagem
+  em `error.message` quando a validação falha (por exemplo, descrição vazia).
+  O `window.alert` mostra essa mensagem em vez de engolir o erro.
+* A resposta do `POST` não traz a categoria, porque não houve `populate`. Por
+  isso o código monta `newTask.category` a partir da `<option>` selecionada.
+  As duas linhas comentadas são outras opções para recuperar a informação que precisamos
+  `querySelector`; `selectedIndex` chega nela sem seletor CSS.
+* No `<dialog>`, `commandfor` e `command="close"` fecham o diálogo sem uma
+  linha de JavaScript. Diferente de um `window.confirm`, o diálogo pode ser
+  estilizado e mostra a descrição da tarefa que vai ser apagada.
+
+### 9. Edição com `PUT` e checkbox sincronizado com o servidor
+
+*Versão `v3.2`. Trechos de `src/api.ts` e `src/todo.ts` nessa versão.*
+
+O CRUD fica completo: editar a descrição e marcar a tarefa como concluída
+passam a ser gravados no backend. O mesmo commit corrige a remoção do
+estágio 8.
+
+```typescript
+export async function updateTask(
+  task: Omit<Task, "category">
+): Promise<StrapiSingleResponse<Task> | null> {
+  try {
+    const response = await fetch(`${BASE_URL}/tasks/${task.documentId}`, {
+      method: "PUT",
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        data: {
+          description: task.description,
+          done: task.done,
+          deadline: task.deadline || null,
+        },
+      }),
+    });
+```
+
+```typescript
+  taskCheckbox.addEventListener("change", async () => {
+    const result = await updateTask({ ...task, done: taskCheckbox.checked })
+    if (result) {
+      task.done = result.data.done
+    } else {
+      taskCheckbox.checked = task.done // desfaz se o backend recusar
+    }
+  })
+```
+
+```typescript
+  function stopEditing() {
+    editing = false
+    editButton.textContent = "✏️";
+    editButton.setAttribute("aria-label", "Editar tarefa");
+    if (taskId) {
+      descricaoLabel.setAttribute("for", taskId);
+    }
+    descricaoLabel.contentEditable = "false";
+    descricaoLabel.textContent = task.description; // volta ao último texto salvo
+  }
+
+  editButton.addEventListener("mousedown", (e) => e.preventDefault());
+
+  editButton.addEventListener("click", async () => {
+    if (editing) {
+      const result = await updateTask({ ...task, description: descricaoLabel.textContent.trim() })
+      if(result) {
+        task.description = result.data.description
+        descricaoLabel.textContent = result.data.description
+      }
+    } else {
+      startEditing();
+    }
+  });
+```
+
+```typescript
+    document.getElementById(taskToDeleteId)?.remove()
+```
+
+**Por que essa decisão?**
+* O checkbox muda na tela antes de o servidor responder. Se o `PUT` falhar,
+  `taskCheckbox.checked = task.done` desfaz a marcação, e a página volta a
+  mostrar o que está salvo. Sem isso, a tarefa pareceria concluída até a
+  próxima recarga.
+* `{ ...task, done: taskCheckbox.checked }` cria uma cópia com o novo valor.
+  O objeto `task` só é atualizado com o que o servidor devolveu
+  (`result.data.done`). A edição da descrição segue o mesmo padrão:
+  `{ ...task, description: ... }`.
+* Com isso, `task.description` guarda sempre o último texto salvo, e o
+  `stopEditing()` o devolve ao label. Esc e blur cancelam a edição de
+  verdade, e um `PUT` que falha não deixa na tela um texto que não foi
+  gravado. Se o código fizesse `task.description = ...` antes do `PUT`, não
+  haveria mais como saber qual era o texto salvo.
+* Depois de salvar, o label mostra `result.data.description`, o texto que o
+  servidor gravou, e não o que foi digitado.
+* O `updateTask` aceita `Omit<Task, "category">`: o `PUT` não envia a
+  relação, então editar a descrição não mexe na categoria.
+* A remoção do estágio 8 usava `querySelector(`#${taskToDeleteId}`)`. Um
+  seletor CSS de id não pode começar com dígito, e o `documentId` é gerado ao
+  acaso: quando ele começava com número, o `querySelector` lançava
+  `SyntaxError`. `getElementById` recebe o id como texto, sem interpretar CSS.
+* Repare que, no `click` do 💾, falta o `stopEditing()` que existe no
+  caminho do Enter: o texto é salvo, mas o label continua editável. O
+  estágio 11 corrige isso.
+
+### 10. Frontend e backend no mesmo repositório
+
+*Versão `v3.3`. Trechos de `backend/src/api/task/` nessa versão.*
+
+O projeto Strapi entra no repositório, e cada lado ganha sua pasta:
+`frontend/` com o Vite e `backend/` com o Strapi. Os arquivos do frontend
+foram movidos com `git mv`, sem mudar uma linha.
+
+```json
+  "attributes": {
+    "description": {
+      "type": "string",
+      "required": true
+    },
+    "category": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::category.category",
+      "inversedBy": "tasks"
+    },
+    "deadline": {
+      "type": "date"
+    },
+    "done": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+```
+
+```typescript
+import { factories } from '@strapi/strapi';
+
+export default factories.createCoreController('api::task.task');
+```
+
+**Por que essa decisão?**
+* O modelo de dados vive em `schema.json`, versionado com o resto do código.
+  Quem clona o repositório recebe os mesmos *content-types*. O banco SQLite
+  (`.tmp/`) e o `.env` ficam fora do git: um tem dados locais, o outro tem
+  segredos.
+* `deadline` é `date`, e não `datetime`. O `<input type="date">` produz
+  `AAAA-MM-DD`, e `formatarData` divide o texto em `-` esperando exatamente
+  isso. Com `datetime`, o Strapi devolvia `2026-11-26T03:00:00.000Z`, e a
+  data aparecia como `26T03:00:00.000Z/11/2026`.
+* A relação é `manyToOne`: cada tarefa tem uma categoria, e uma categoria tem
+  várias tarefas (`inversedBy` aqui, `mappedBy` em `category`).
+* O controller, as rotas e o service são uma linha cada, com
+  `factories.createCore*`. Só com isso o Strapi cria `GET`, `POST`, `PUT` e
+  `DELETE` em `/api/tasks`, as quatro rotas que o frontend usa.
+* Com `git mv`, o git registra a mudança de pasta como renomeação, e
+  `git log --follow frontend/src/todo.ts` continua mostrando a história desde
+  a `v1.0`.
+
+### 11. Modularização do frontend
+
+*Versão `v3.4`. Trechos de `frontend/src/dom.ts`, `frontend/src/deleteDialog.ts` e `frontend/src/todo.ts` nessa versão.*
+
+O `todo.ts` tinha 241 linhas misturando referências ao DOM, formulário, lista,
+edição e exclusão. Ele é dividido em módulos, os nomes passam para o inglês e
+a edição ganha uma função única para salvar.
+
+```typescript
+export const taskList = document.querySelector("ul") as HTMLUListElement;
+export const formElement = document.querySelector("form") as HTMLFormElement;
+export const categorySelect = document.querySelector("select") as HTMLSelectElement;
+export const descriptionInput = document.getElementById("description") as HTMLInputElement;
+export const deadlineInput = document.getElementById("deadline") as HTMLInputElement;
+```
+
+```typescript
+let taskToDeleteId: string = ""
+
+export function setupDeleteDialog() {
+  confirmButton.addEventListener('click', async() => {
+    const result = await deleteTask(taskToDeleteId)
+    if(result) {
+      document.getElementById(taskToDeleteId)?.remove()
+    }
+    deleteDialog.close()
+  })
+}
+```
+
+```typescript
+setupTaskForm();
+setupDeleteDialog();
+loadCategories();
+loadTasks();
+```
+
+```typescript
+  const taskId = `task-${task.documentId}`; // mesmo id do checkbox
+```
+
+```typescript
+  async function saveEditing() {
+    const result = await updateTask({ ...task, description: descriptionLabel.textContent.trim() })
+    if(result) {
+      task.description = result.data.description
+      descriptionLabel.textContent = result.data.description
+    }
+    stopEditing();
+  }
+```
+
+**Por que essa decisão?**
+* `dom.ts` reúne as referências aos elementos. A lista, o formulário e o
+  diálogo usam os mesmos elementos, e nenhum módulo precisa importar outro só
+  para chegar num `<ul>`. Se um id do HTML mudar, só um arquivo muda.
+* `deleteDialog.ts` junta o estado da exclusão e o código que mexe nele, que
+  antes ficavam a 200 linhas de distância. `taskToDeleteId` e
+  `openDeleteDialog` não são exportados: nenhum outro módulo consegue alterar
+  qual tarefa vai ser apagada.
+* Os listeners ficam dentro de `setupTaskForm()` e `setupDeleteDialog()`, em
+  vez de soltos no topo do módulo. Importar um arquivo não registra nada
+  sozinho, e as quatro linhas do topo de `todo.ts` mostram, em ordem, tudo o
+  que acontece quando a página carrega.
+* Funções, variáveis, ids e classes passam todos para o inglês. Antes
+  conviviam `descricaoLabel` e `categorySelect`, `formatarData` e
+  `createTaskElement`. O texto que aparece na tela continua em português,
+  como pede o `lang="pt-BR"`.
+* `saveEditing()` tira a duplicação entre o `click` do 💾 e o Enter. No
+  estágio 9 as duas cópias já tinham divergido: só uma chamava
+  `stopEditing()`. Com uma função só, os dois caminhos fazem a mesma coisa.
+* O `for` do label precisa apontar para o id do checkbox, que é
+  `task-<documentId>`. O `stopEditing` devolvia o `for` com o `documentId`
+  sozinho, e depois de editar uma tarefa clicar no texto deixava de marcar o
+  checkbox.
+
 ---
 
 ## 🛠️ Tecnologias Utilizadas
 
 * **HTML5:** estrutura do formulário, validação nativa (`required`,
-  `type="date"`, `disabled`) e semântica (`<label>`, `<time>`, `lang`).
+  `type="date"`, `disabled`), semântica (`<label>`, `<time>`, `lang`) e
+  `<dialog>` aberto e fechado com `commandfor`/`command`.
 * **CSS3:** reação ao estado do checkbox com `:checked + label`, cores por
   categoria e alinhamento da tarefa com flexbox.
 * **TypeScript 7:** tipos do DOM, *narrowing* com `instanceof` e modo
   estrito, verificados no build.
 * **Vite 8:** servidor de desenvolvimento que serve o `.ts` direto e gera o
   JavaScript final em `dist/`.
+* **Fetch API:** as requisições `GET`, `POST`, `PUT` e `DELETE` do frontend
+  para o backend, com `async`/`await`.
+* **Strapi 5:** backend que gera a API REST de tarefas e categorias a partir
+  dos *content-types* definidos em `schema.json`.
+* **SQLite:** banco local do Strapi, criado em `backend/.tmp/` e fora do git.
 
 ---
 
@@ -622,13 +1033,8 @@ li {
 É preciso ter o [Node.js](https://nodejs.org/) instalado (uma versão LTS
 recente).
 
-O repositório tem dois projetos independentes:
-
-```
-todoList2026-2/
-├── frontend/   # Vite + TypeScript (a página da lista)
-└── backend/    # Strapi 5 (API REST com tarefas e categorias, banco SQLite)
-```
+O repositório tem dois projetos independentes, cada um com seu
+`package.json`: `frontend/` (Vite + TypeScript) e `backend/` (Strapi 5).
 
 1. Clone o repositório:
    ```bash
@@ -661,7 +1067,9 @@ todoList2026-2/
 
 Para estudar a primeira versão, em JavaScript puro, use
 `git checkout v1.0` e abra o `index.html` direto no navegador: ela não
-precisa de Node nem de build. Volte com `git checkout main`.
+precisa de Node nem de build. Até a `v2.4` o projeto Vite fica na raiz, sem
+a pasta `frontend/`, e nenhuma versão anterior à `v3.3` tem o
+backend. Volte com `git checkout main`.
 
 ---
 
@@ -669,25 +1077,42 @@ precisa de Node nem de build. Volte com `git checkout main`.
 
 * **Leia a evolução pelos diffs.** `git show v2.0` mostra tudo que o
   TypeScript exigiu. `git diff v2.2 v2.3` mostra a remoção e o `strict`
-  juntos, mesmo sendo dois commits.
+  juntos, mesmo sendo dois commits. `git diff v2.4 v3.2 -- src` mostra
+  tudo que a integração com o backend mudou no frontend.
+* **Abra a aba *Network* do DevTools** e use a página: carregue, crie, edite,
+  marque e exclua uma tarefa. Para cada ação, encontre a requisição, o método
+  HTTP, o corpo enviado em `data` e a resposta do Strapi.
+* **Tire uma permissão da role *Public*** no painel do Strapi (por exemplo,
+  `delete` em *Task*), tente excluir uma tarefa e veja o status da resposta e
+  o que a página faz quando o `deleteTask` devolve `false`.
+* **Tire o `?populate=category`** de `loadTasks` e recarregue a página. Leia
+  o erro no console e compare a resposta do servidor na aba *Network*.
+* **Teste o seletor de id:** no console, rode
+  `document.querySelector("#1abc")` e depois
+  `document.getElementById("1abc")`. Compare com a correção do estágio 9.
+* **Troque o `updateTask({ ...task, description: ... })` de `saveEditing`**
+  por `task.description = descriptionLabel.textContent.trim()` seguido de
+  `updateTask(task)`. Pare o Strapi, edite uma descrição, aperte Enter e
+  compare o texto na tela com o que aparece depois de religar o servidor e
+  recarregar a página.
 * **Abra o DevTools** (aba *Elements*) enquanto cria tarefas e observe cada
   `<li>` aparecer com checkbox, `label`, categoria, prazo e o grupo de botões,
   na ordem do `appendChild`.
-* **Troque `textContent` por `innerHTML`** em `createTask` e cadastre a
+* **Troque `textContent` por `innerHTML`** em `createTaskElement` e cadastre a
   descrição `<b>teste</b>`. Veja a diferença e pense no que aconteceria com um
   `<script>` ou um `onerror`.
 * **Inverta a ordem** dos `appendChild` do checkbox e do label e veja o
   `:checked + label` parar de funcionar.
-* **Remova um `as HTMLInputElement`** do topo de `src/todo.ts` e rode
+* **Remova um `as HTMLInputElement`** de `frontend/src/dom.ts` e rode
   `npm run build`. Leia os erros e explique por que cada um aparece.
 * **Rode `npm run build` na versão `v2.0`** (`git checkout v2.0`) e veja
   o `noUnusedParameters` apontar `categoria` e `prazo`. Depois rode
   `npm run dev` no mesmo commit e repare que a página funciona mesmo assim.
-* **Troque `formatarData(prazo)` por `new Date(prazo).toLocaleDateString("pt-BR")`**
+* **Troque `formatDate(task.deadline)` por `new Date(task.deadline).toLocaleDateString("pt-BR")`**
   e cadastre uma tarefa com prazo. Confira o dia que aparece.
 * **Apague a linha `submitButton.disabled = true`** do `submit`, crie uma
   tarefa e veja o estado do botão com o campo vazio.
-* **Volte a remoção para `e.target.parentElement?.remove()`** na versão atual
+* **Na versão `v2.4`, volte a remoção para `e.target.parentElement?.remove()`**
   e clique em 🗑️. Observe no DOM o que foi apagado.
 * **Investigue a ordem dos eventos:** comente a linha do `mousedown` em
   `createEditButton`, comece a editar uma tarefa e clique em 💾. Coloque um
