@@ -2,7 +2,7 @@ import type { StrapiCollectionResponse, StrapiSingleResponse, Task } from "./typ
 
 const BASE_URL = "http://localhost:1337/api";
 
-export async function getAll<T>(
+export async function fetchCollection<T>(
   url: string,
 ): Promise<StrapiCollectionResponse<T> | null> {
   try {

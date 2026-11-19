@@ -1,57 +1,57 @@
 import type { Category, Task } from "./types";
-import { getAll, createTask, deleteTask, updateTask } from "./api";
+import { fetchCollection, createTask, updateTask } from "./api";
+import {
+  taskList,
+  formElement,
+  categorySelect,
+  descriptionInput,
+  deadlineInput,
+  submitButton,
+} from "./dom";
+import { createDeleteButton, setupDeleteDialog } from "./deleteDialog";
 
-const listaUl = document.querySelector("ul") as HTMLUListElement;
-const formElement = document.querySelector("form") as HTMLFormElement;
-const categorySelect = document.querySelector("select") as HTMLSelectElement;
-const descInput = document.getElementById("descricao") as HTMLInputElement;
-const prazoInput = document.getElementById("prazo") as HTMLInputElement;
-const submitButton = document.querySelector(
-  "[type=submit]",
-) as HTMLInputElement;
-const deleteDialog = document.getElementById('deleteDialog') as HTMLDialogElement
-const confirmButton = document.getElementById('confirmButton') as HTMLButtonElement
-const taskToDeleteSpan = document.getElementById('toDelete') as HTMLSpanElement
-let taskToDeleteId: string = ""
+setupTaskForm();
+setupDeleteDialog();
+loadCategories();
+loadTasks();
 
-initializeCategories();
-initializeTasks();
+function setupTaskForm() {
+  formElement.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const description = descriptionInput.value.trim();
+    if (description.length !== 0) {
+      const result = await createTask(
+        {
+          description,
+          deadline: deadlineInput.value,
+          done: false,
+        },
+        categorySelect.value,
+      );
 
-formElement.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const descricao = descInput.value.trim();
-  if (descricao.length !== 0) {
-    const result = await createTask(
-      {
-        description: descricao,
-        deadline: prazoInput.value,
-        done: false,
-      },
-      categorySelect.value,
-    );
-
-    if(result !== null) {
-      const newTask = result.data
-      //const option  = document.querySelector(`option[value=${categorySelect.value}]`) as HTMLOptionElement
-      //const option = document.querySelector('#mySelect option:checked')
-      const option = categorySelect.options[categorySelect.selectedIndex]
-      newTask.category = {
-        description: option.textContent,
-        documentId: categorySelect.value,
+      if(result !== null) {
+        const newTask = result.data
+        //const option  = document.querySelector(`option[value=${categorySelect.value}]`) as HTMLOptionElement
+        //const option = document.querySelector('#mySelect option:checked')
+        const option = categorySelect.options[categorySelect.selectedIndex]
+        newTask.category = {
+          description: option.textContent,
+          documentId: categorySelect.value,
+        }
+        taskList.appendChild(createTaskElement(newTask))
       }
-      listaUl.appendChild(createTaskElement(newTask))
+      descriptionInput.value = "";
+      submitButton.disabled = true;
     }
-    descInput.value = "";
-    submitButton.disabled = true;
-  }
-});
+  });
 
-descInput.addEventListener("input", () => {
-  submitButton.disabled = descInput.value.trim().length === 0;
-});
+  descriptionInput.addEventListener("input", () => {
+    submitButton.disabled = descriptionInput.value.trim().length === 0;
+  });
+}
 
-async function initializeCategories(): Promise<void> {
-  const result = await getAll<Category>("/categories");
+async function loadCategories(): Promise<void> {
+  const result = await fetchCollection<Category>("/categories");
   const categories = result?.data;
   if (categories) {
     for (let category of categories) {
@@ -66,13 +66,13 @@ async function initializeCategories(): Promise<void> {
   }
 }
 
-async function initializeTasks(): Promise<void> {
-  const result = await getAll<Task>("/tasks?populate=category");
+async function loadTasks(): Promise<void> {
+  const result = await fetchCollection<Task>("/tasks?populate=category");
   const tasks = result?.data;
   if (tasks) {
     for (let task of tasks) {
       const newTask = createTaskElement(task);
-      listaUl.appendChild(newTask);
+      taskList.appendChild(newTask);
     }
   }
 }
@@ -94,7 +94,7 @@ function createTaskElement(task : Task): HTMLLIElement {
   listItem.id = task.documentId
 
   const taskId = `task-${task.documentId}`;
-  const taskCheckbox = createCheckbox(taskId);
+  const taskCheckbox = createTaskCheckbox(taskId);
   taskCheckbox.checked = task.done;
   taskCheckbox.addEventListener("change", async () => {
     const result = await updateTask({ ...task, done: taskCheckbox.checked })
@@ -105,46 +105,46 @@ function createTaskElement(task : Task): HTMLLIElement {
     }
   })
 
-  const descricaoLabel = document.createElement("label");
-  descricaoLabel.setAttribute("for", taskId);
-  descricaoLabel.textContent = task.description;
+  const descriptionLabel = document.createElement("label");
+  descriptionLabel.setAttribute("for", taskId);
+  descriptionLabel.textContent = task.description;
 
-  const categoriaSpan = document.createElement("span");
-  categoriaSpan.classList.add("categoria");
-  categoriaSpan.classList.add(task.category.description.toLocaleLowerCase());
-  categoriaSpan.textContent = task.category.description;
+  const categorySpan = document.createElement("span");
+  categorySpan.classList.add("category");
+  categorySpan.classList.add(task.category.description.toLocaleLowerCase());
+  categorySpan.textContent = task.category.description;
 
   const deleteButton = createDeleteButton(task);
-  const editButton = createEditButton(task, descricaoLabel);
+  const editButton = createEditButton(task, descriptionLabel);
 
   listItem.appendChild(taskCheckbox);
-  listItem.appendChild(descricaoLabel);
-  listItem.appendChild(categoriaSpan);
+  listItem.appendChild(descriptionLabel);
+  listItem.appendChild(categorySpan);
 
   if (task.deadline) {
-    const prazoTime = document.createElement("time");
-    prazoTime.className = "prazo";
-    prazoTime.dateTime = task.deadline;
-    prazoTime.textContent = formatarData(task.deadline);
-    listItem.appendChild(prazoTime);
+    const deadlineTime = document.createElement("time");
+    deadlineTime.className = "deadline";
+    deadlineTime.dateTime = task.deadline;
+    deadlineTime.textContent = formatDate(task.deadline);
+    listItem.appendChild(deadlineTime);
   }
 
-  const acoes = document.createElement("span");
-  acoes.className = "acoes";
-  acoes.appendChild(editButton);
-  acoes.appendChild(deleteButton);
+  const actions = document.createElement("span");
+  actions.className = "actions";
+  actions.appendChild(editButton);
+  actions.appendChild(deleteButton);
 
-  listItem.appendChild(acoes);
+  listItem.appendChild(actions);
 
   return listItem;
 }
 
-function formatarData(dataIso: string) {
-  const [ano, mes, dia] = dataIso.split("-");
-  return `${dia}/${mes}/${ano}`;
+function formatDate(isoDate: string) {
+  const [year, month, day] = isoDate.split("-");
+  return `${day}/${month}/${year}`;
 }
 
-function createCheckbox(taskId: string) {
+function createTaskCheckbox(taskId: string) {
   const taskCheckbox = document.createElement("input");
   taskCheckbox.type = "checkbox";
   taskCheckbox.id = taskId;
@@ -152,91 +152,63 @@ function createCheckbox(taskId: string) {
   return taskCheckbox;
 }
 
-function createDeleteButton(task: Task) {
-  const deleteButton = document.createElement("button");
-  deleteButton.textContent = "🗑️";
-  deleteButton.setAttribute("aria-label", "Excluir tarefa");
-  deleteButton.addEventListener("click",  () => {
-     showDialog(task)
-  });
-
-  return deleteButton;
-}
-
-function createEditButton(task: Task, descricaoLabel: HTMLLabelElement) {
+function createEditButton(task: Task, descriptionLabel: HTMLLabelElement) {
   const editButton = document.createElement("button");
   editButton.textContent = "✏️";
   editButton.setAttribute("aria-label", "Editar tarefa");
   let editing = false;
-  const taskId = task.documentId;
+  const taskId = `task-${task.documentId}`; // mesmo id do checkbox
 
   function startEditing() {
     editing = true;
     editButton.textContent = "💾";
     editButton.setAttribute("aria-label", "Salvar edição");
-    descricaoLabel.removeAttribute("for");
-    descricaoLabel.contentEditable = "plaintext-only";
-    descricaoLabel.focus();
+    descriptionLabel.removeAttribute("for");
+    descriptionLabel.contentEditable = "plaintext-only";
+    descriptionLabel.focus();
   }
 
   function stopEditing() {
     editing = false
     editButton.textContent = "✏️";
     editButton.setAttribute("aria-label", "Editar tarefa");
-    if (taskId) {
-      descricaoLabel.setAttribute("for", taskId);
+    descriptionLabel.setAttribute("for", taskId);
+    descriptionLabel.contentEditable = "false";
+    descriptionLabel.textContent = task.description; // volta ao último texto salvo
+  }
+
+  async function saveEditing() {
+    const result = await updateTask({ ...task, description: descriptionLabel.textContent.trim() })
+    if(result) {
+      task.description = result.data.description
+      descriptionLabel.textContent = result.data.description
     }
-    descricaoLabel.contentEditable = "false";
-    descricaoLabel.textContent = task.description; // volta ao último texto salvo
+    stopEditing();
   }
 
   editButton.addEventListener("mousedown", (e) => e.preventDefault());
 
   editButton.addEventListener("click", async () => {
     if (editing) {
-      const result = await updateTask({ ...task, description: descricaoLabel.textContent.trim() })
-      if(result) {
-        task.description = result.data.description
-        descricaoLabel.textContent = result.data.description
-      }
+      await saveEditing();
     } else {
       startEditing();
     }
   });
 
-  descricaoLabel.addEventListener("keydown", async (e) => {
+  descriptionLabel.addEventListener("keydown", async (e) => {
     if (!editing) return;
     if (e.key === "Enter") {
       e.preventDefault(); // não insere quebra de linha
-      const result = await updateTask({ ...task, description: descricaoLabel.textContent.trim() })
-      if(result) {
-        task.description = result.data.description
-        descricaoLabel.textContent = result.data.description
-      }
-      stopEditing();
+      await saveEditing();
     } else if (e.key === "Escape") {
       stopEditing();
     }
   });
 
-  descricaoLabel.addEventListener("blur", () => {
+  descriptionLabel.addEventListener("blur", () => {
     if (editing) stopEditing();
   });
 
   return editButton;
 }
-
-
-function showDialog(task: Task) {
-  taskToDeleteId = task.documentId
-  taskToDeleteSpan.textContent = task.description
-  deleteDialog.show()
-}
-
-confirmButton.addEventListener('click', async() => {
-  const result = await deleteTask(taskToDeleteId)
-  if(result) {
-    document.getElementById(taskToDeleteId)?.remove()
-  }
-  deleteDialog.close()
-})
