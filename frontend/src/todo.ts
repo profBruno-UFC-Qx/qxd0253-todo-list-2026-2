@@ -12,10 +12,17 @@ import {
 import { showError } from "./feedback";
 import { createDeleteButton, setupDeleteDialog } from "./deleteDialog";
 
-setupTaskForm();
-setupDeleteDialog();
-loadCategories();
-loadTasks();
+// Sem token, não adianta carregar a página: todas as chamadas falhariam.
+// replace() (em vez de assign()) não deixa esta página no histórico,
+// então o botão "voltar" do login não traz o usuário de volta para cá.
+if (localStorage.getItem("token")) {
+  setupTaskForm();
+  setupDeleteDialog();
+  loadCategories();
+  loadTasks();
+} else {
+  window.location.replace("/login.html");
+}
 
 function setupTaskForm() {
   formElement.addEventListener("submit", async (e) => {

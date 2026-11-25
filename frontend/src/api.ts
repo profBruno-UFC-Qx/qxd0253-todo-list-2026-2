@@ -11,12 +11,6 @@ export async function request<T>(
     // não em JSON. Nesses casos, body fica null em vez de lançar uma exceção.
     const body = response.status === 204 ? null : await response.json().catch(() => null)
     if (!response.ok) {
-      // if (response.status === 401) {
-      //   window.location.assign('login.html')
-      // } else if (response.status === 403) {
-      //   window.location.assign('forbidden.html')
-      // }
-
       return {
         success: false,
         error: {
@@ -68,7 +62,19 @@ async function send<TOutput>(
     headers["Content-Type"] = "application/json";
     body = JSON.stringify({ data }); // o Strapi espera { data: {...} }
   }
-  return request<TOutput>(url, { method, headers, body });
+  const result = await request<TOutput>(url, { method, headers, body });
+
+  // 401 = o servidor não reconheceu quem fez a requisição: sem token,
+  // token expirado ou inválido. O token salvo não serve mais, então
+  // apagamos e mandamos o usuário fazer login de novo.
+  // (Fica aqui e não em request() porque o login também usa request(),
+  // e lá um erro deve ser mostrado ao usuário, não redirecionado.)
+  if (!result.success && result.error.status === 401) {
+    localStorage.removeItem("token");
+    window.location.replace("/login.html");
+  }
+
+  return result;
 }
 
 // TInput  = formato que ENVIAMOS (ex.: categoria como documentId)
