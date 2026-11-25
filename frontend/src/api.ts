@@ -56,9 +56,13 @@ async function send<TOutput>(
   url: string,
   data?: unknown,
 ): Promise<Result<TOutput>> {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${localStorage.getItem("token")}`,
-  };
+  const headers: Record<string, string> = {};
+  // Sem token salvo, getItem devolve null e enviaríamos "Bearer null".
+  // Nesse caso, a requisição vai sem o cabeçalho, como um visitante.
+  const token = localStorage.getItem("token");
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
   let body: string | undefined;
   if (data !== undefined) {
     headers["Content-Type"] = "application/json";
