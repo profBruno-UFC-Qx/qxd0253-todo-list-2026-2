@@ -9,3 +9,4 @@ export const submitButton = document.querySelector(
 export const deleteDialog = document.getElementById('deleteDialog') as HTMLDialogElement
 export const confirmButton = document.getElementById('confirmButton') as HTMLButtonElement
 export const taskToDeleteSpan = document.getElementById('toDelete') as HTMLSpanElement
+export const logoutButton = document.getElementById('logoutButton') as HTMLButtonElement

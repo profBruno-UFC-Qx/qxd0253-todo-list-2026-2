@@ -8,6 +8,7 @@ import {
   descriptionInput,
   deadlineInput,
   submitButton,
+  logoutButton,
 } from "./dom";
 import { showError } from "./feedback";
 import { createDeleteButton, setupDeleteDialog } from "./deleteDialog";
@@ -16,12 +17,22 @@ import { createDeleteButton, setupDeleteDialog } from "./deleteDialog";
 // replace() (em vez de assign()) não deixa esta página no histórico,
 // então o botão "voltar" do login não traz o usuário de volta para cá.
 if (localStorage.getItem("token")) {
+  setupLogout();
   setupTaskForm();
   setupDeleteDialog();
   loadCategories();
   loadTasks();
 } else {
   window.location.replace("/login.html");
+}
+
+// Para o frontend, "estar logado" é só ter o token salvo no navegador.
+// Sair, portanto, é apagar esse token.
+function setupLogout() {
+  logoutButton.addEventListener("click", () => {
+    localStorage.removeItem("token");
+    window.location.replace("/login.html");
+  });
 }
 
 function setupTaskForm() {
