@@ -1,5 +1,6 @@
-import type { Category, Task } from "./types";
-import { fetchCollection, createTask, updateTask } from "./api";
+import type { Task } from "./types";
+import * as taskService from "./services/taskService";
+import * as categoryService from "./services/categoryService";
 import {
   taskList,
   formElement,
@@ -8,6 +9,7 @@ import {
   deadlineInput,
   submitButton,
 } from "./dom";
+import { showError } from "./feedback";
 import { createDeleteButton, setupDeleteDialog } from "./deleteDialog";
 
 setupTaskForm();
@@ -20,28 +22,23 @@ function setupTaskForm() {
     e.preventDefault();
     const description = descriptionInput.value.trim();
     if (description.length !== 0) {
-      const result = await createTask(
-        {
-          description,
-          deadline: deadlineInput.value,
-          done: false,
-        },
-        categorySelect.value,
-      );
+      const result = await taskService.create({
+        description,
+        deadline: deadlineInput.value || null,
+        done: false,
+        category: categorySelect.value,
+      });
 
-      if(result !== null) {
-        const newTask = result.data
-        //const option  = document.querySelector(`option[value=${categorySelect.value}]`) as HTMLOptionElement
-        //const option = document.querySelector('#mySelect option:checked')
-        const option = categorySelect.options[categorySelect.selectedIndex]
-        newTask.category = {
-          description: option.textContent,
-          documentId: categorySelect.value,
-        }
-        taskList.appendChild(createTaskElement(newTask))
+      if (result.success) {
+        // A resposta já vem com a categoria completa (?populate=category).
+        taskList.appendChild(createTaskElement(result.data.data));
+        // Só limpa o campo se deu certo: em caso de erro, o usuário
+        // não perde o que digitou e pode tentar de novo.
+        descriptionInput.value = "";
+        submitButton.disabled = true;
+      } else {
+        showError(`Erro ao criar tarefa: ${result.error.message}`);
       }
-      descriptionInput.value = "";
-      submitButton.disabled = true;
     }
   });
 
@@ -51,29 +48,35 @@ function setupTaskForm() {
 }
 
 async function loadCategories(): Promise<void> {
-  const result = await fetchCollection<Category>("/categories");
-  const categories = result?.data;
-  if (categories) {
-    for (let category of categories) {
-      const option = createCategoryOption(
-        category.description,
-        category.documentId,
-      );
-      categorySelect.appendChild(option);
+  const result = await categoryService.getAll();
+  if (result.success) {
+    const categories = result.data.data;
+    if (categories) {
+      for (let category of categories) {
+        const option = createCategoryOption(
+          category.description,
+          category.documentId,
+        );
+        categorySelect.appendChild(option);
+      }
     }
   } else {
-    window.alert("Erro ao carregar categorias");
+    showError(`Erro ao carregar categorias: ${result.error.message}`);
   }
 }
 
 async function loadTasks(): Promise<void> {
-  const result = await fetchCollection<Task>("/tasks?populate=category");
-  const tasks = result?.data;
-  if (tasks) {
-    for (let task of tasks) {
-      const newTask = createTaskElement(task);
-      taskList.appendChild(newTask);
+  const result = await taskService.getAll();
+  if (result.success) {
+    const tasks = result.data.data;
+    if (tasks) {
+      for (let task of tasks) {
+        const newTask = createTaskElement(task);
+        taskList.appendChild(newTask);
+      }
     }
+  } else {
+    showError(`Erro ao carregar tarefas: ${result.error.message}`);
   }
 }
 
@@ -87,23 +90,25 @@ function createCategoryOption(
   return newOption;
 }
 
-
-
-function createTaskElement(task : Task): HTMLLIElement {
+function createTaskElement(task: Task): HTMLLIElement {
   const listItem = document.createElement("li");
-  listItem.id = task.documentId
+  listItem.id = task.documentId;
 
   const taskId = `task-${task.documentId}`;
   const taskCheckbox = createTaskCheckbox(taskId);
   taskCheckbox.checked = task.done;
   taskCheckbox.addEventListener("change", async () => {
-    const result = await updateTask({ ...task, done: taskCheckbox.checked })
-    if (result) {
-      task.done = result.data.done
+    const result = await taskService.update({
+      ...task,
+      done: taskCheckbox.checked,
+    });
+    if (result.success) {
+      task.done = result.data.data.done;
     } else {
-      taskCheckbox.checked = task.done // desfaz se o backend recusar
+      taskCheckbox.checked = task.done; // desfaz se o backend recusar
+      showError(`${result.error.status} - ${result.error.message}`)
     }
-  })
+  });
 
   const descriptionLabel = document.createElement("label");
   descriptionLabel.setAttribute("for", taskId);
@@ -111,8 +116,11 @@ function createTaskElement(task : Task): HTMLLIElement {
 
   const categorySpan = document.createElement("span");
   categorySpan.classList.add("category");
-  categorySpan.classList.add(task.category.description.toLocaleLowerCase());
-  categorySpan.textContent = task.category.description;
+  // Texto vindo do usuário não vira nome de classe ("Vida pessoal" tem espaço
+  // e faria o classList.add lançar erro). Um atributo data-* aceita qualquer texto.
+  const categoryName = task.category.description;
+  categorySpan.dataset.category = categoryName.toLocaleLowerCase();
+  categorySpan.textContent = categoryName;
 
   const deleteButton = createDeleteButton(task);
   const editButton = createEditButton(task, descriptionLabel);
@@ -169,7 +177,7 @@ function createEditButton(task: Task, descriptionLabel: HTMLLabelElement) {
   }
 
   function stopEditing() {
-    editing = false
+    editing = false;
     editButton.textContent = "✏️";
     editButton.setAttribute("aria-label", "Editar tarefa");
     descriptionLabel.setAttribute("for", taskId);
@@ -178,10 +186,15 @@ function createEditButton(task: Task, descriptionLabel: HTMLLabelElement) {
   }
 
   async function saveEditing() {
-    const result = await updateTask({ ...task, description: descriptionLabel.textContent.trim() })
-    if(result) {
-      task.description = result.data.description
-      descriptionLabel.textContent = result.data.description
+    const result = await taskService.update({
+      ...task,
+      description: descriptionLabel.textContent.trim(),
+    });
+    if (result.success) {
+      task.description = result.data.data.description;
+      descriptionLabel.textContent = result.data.data.description;
+    } else {
+      showError(`${result.error.status} - ${result.error.message}`)
     }
     stopEditing();
   }

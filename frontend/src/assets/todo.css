@@ -18,17 +18,36 @@ li {
   padding: 5px;
 }
 
-.lazer {
+.category[data-category="lazer"] {
   background-color: cornflowerblue;
   color: white;
 }
 
-.estudo {
+.category[data-category="estudo"] {
   background-color: cadetblue;
   color: white;
 }
 
-.trabalho {
+.category[data-category="trabalho"] {
   background-color: brown;
   color: white;
+}
+
+.alert {
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.alert.success {
+  background-color: green;
+  color: white;
+}
+
+.alert.error {
+  background-color:red;
+  color: white;
+}
+
+.hidden {
+  display: none;
 }

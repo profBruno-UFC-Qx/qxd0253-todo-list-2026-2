@@ -1,106 +1,95 @@
-import type { StrapiCollectionResponse, StrapiSingleResponse, Task } from "./types";
+import type { Result, StrapiCollectionResponse, StrapiSingleResponse } from "./types";
 
 const BASE_URL = "http://localhost:1337/api";
 
-export async function fetchCollection<T>(
+export async function request<T>(
+  url: string, options? : RequestInit
+): Promise<Result<T>> {
+  try {
+    const response = await fetch(`${BASE_URL}${url}`, options);
+    // 204 (No Content) não tem corpo; e um erro do servidor pode vir em HTML,
+    // não em JSON. Nesses casos, body fica null em vez de lançar uma exceção.
+    const body = response.status === 204 ? null : await response.json().catch(() => null)
+    if (!response.ok) {
+      // if (response.status === 401) {
+      //   window.location.assign('login.html')
+      // } else if (response.status === 403) {
+      //   window.location.assign('forbidden.html')
+      // }
+
+      return {
+        success: false,
+        error: {
+          name: body?.error?.name ?? 'HTTP_ERROR',
+          status: response.status,
+          message: body?.error?.message ?? response.statusText
+        }
+      }
+    }
+    
+    
+    return {
+      success: true,
+      data: body
+    };
+
+  } catch (error) {
+    // Chegar aqui significa que não houve resposta HTTP nenhuma (servidor
+    // fora do ar, sem internet, CORS...). Por isso não existe um status real:
+    // usamos 0, o mesmo valor que o navegador usa nessa situação.
+    return {
+      success: false,
+      error: {
+        status: 0,
+        name: 'NETWORK_ERROR',
+        message: (error as Error).message
+      }
+    };
+  }
+}
+
+
+// Toda chamada autenticada passa por aqui: muda apenas o método,
+// a URL e (opcionalmente) os dados enviados.
+async function send<TOutput>(
+  method: "GET" | "POST" | "PUT" | "DELETE",
   url: string,
-): Promise<StrapiCollectionResponse<T> | null> {
-  try {
-    const response = await fetch(`${BASE_URL}${url}`);
-    if (!response.ok) {
-      throw new Error(`Response status: ${response.status}`);
-    }
-
-    const result = await response.json();
-    return result;
-  } catch (error) {
-    console.error((error as Error).message);
-    return null;
+  data?: unknown,
+): Promise<Result<TOutput>> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${localStorage.getItem("token")}`,
+  };
+  let body: string | undefined;
+  if (data !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify({ data }); // o Strapi espera { data: {...} }
   }
+  return request<TOutput>(url, { method, headers, body });
 }
 
-export async function updateTask(
-  task: Omit<Task, "category">
-): Promise<StrapiSingleResponse<Task> | null> {
-  try {
-    const response = await fetch(`${BASE_URL}/tasks/${task.documentId}`, {
-      method: "PUT",
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        data: {
-          description: task.description,
-          done: task.done,
-          deadline: task.deadline || null,
-        },
-      }),
-    });
-    if (!response.ok) {
-      if (response.status === 400) {
-        window.alert((await response.json()).error.message);
-      }
-      throw new Error(`Response status: ${response.status}`);
-    }
+// TInput  = formato que ENVIAMOS (ex.: categoria como documentId)
+// TOutput = formato que RECEBEMOS (ex.: categoria como objeto completo)
 
-    const result = await response.json();
-    return result;
-  } catch (error) {
-    console.error((error as Error).message);
-    return null;
-  }
+export async function getAll<TOutput>(
+  url: string,
+): Promise<Result<StrapiCollectionResponse<TOutput>>> {
+  return send<StrapiCollectionResponse<TOutput>>("GET", url);
 }
 
-export async function createTask(
-  task: Omit<Task, "id" | "documentId" | "category">,
-  categoryId: string,
-): Promise<StrapiSingleResponse<Task> | null> {
-  try {
-    const response = await fetch(`${BASE_URL}/tasks`, {
-      method: "POST",
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        data: {
-          description: task.description,
-          done: task.done,
-          deadline: task.deadline || null,
-          category: categoryId
-        },
-      }),
-    });
-    if (!response.ok) {
-      if (response.status === 400) {
-        window.alert((await response.json()).error.message);
-      }
-      throw new Error(`Response status: ${response.status}`);
-    }
-
-    const result = await response.json();
-    return result;
-  } catch (error) {
-    console.error((error as Error).message);
-    return null;
-  }
+export async function create<TInput, TOutput>(
+  url: string,
+  data: TInput,
+): Promise<Result<StrapiSingleResponse<TOutput>>> {
+  return send<StrapiSingleResponse<TOutput>>("POST", url, data);
 }
 
-export async function deleteTask(id: string,
-): Promise<Boolean> {
-  try {
-    const response = await fetch(`${BASE_URL}/tasks/${id}`, {
-      method: "DELETE", 
-    });
-    if (!response.ok) {
-      if (response.status === 400) {
-        window.alert((await response.json()).error.message);
-      }
-      throw new Error(`Response status: ${response.status}`);
-    }
+export async function update<TInput, TOutput>(
+  url: string,
+  data: TInput,
+): Promise<Result<StrapiSingleResponse<TOutput>>> {
+  return send<StrapiSingleResponse<TOutput>>("PUT", url, data);
+}
 
-    return true;
-  } catch (error) {
-    console.error((error as Error).message);
-    return false;
-  }
+export async function remove(url: string): Promise<Result<null>> {
+  return send<null>("DELETE", url);
 }
