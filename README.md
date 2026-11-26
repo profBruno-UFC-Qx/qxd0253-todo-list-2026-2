@@ -10,21 +10,26 @@ uma revisão: cada um corrige um problema concreto. Ler o histórico em ordem
 ensina tanto a manipular o DOM quanto a reconhecer, no próprio código, o que
 pode dar errado. Na parte final, as tarefas deixam de viver só na página: um
 backend em Strapi passa a guardá-las, e o frontend aprende a ler, criar,
-editar e excluir dados por HTTP, até ser dividido em módulos.
+editar e excluir dados por HTTP, até ser dividido em módulos. Por fim, o
+acesso à rede ganha respostas tipadas e uma camada de *services*, e o site
+ganha login com JWT, com o ciclo completo de uma sessão.
 
 ---
 
 ## 🏗️ Evolução da Arquitetura
 
 O projeto parte de um CRUD em JavaScript puro, aberto direto no navegador, e
-chega a um frontend TypeScript em modo estrito, dividido em módulos, que lê e
-grava as tarefas numa API REST servida pelo Strapi.
+chega a um frontend TypeScript em modo estrito, dividido em módulos, que
+autentica o usuário e lê e grava as tarefas numa API REST servida pelo Strapi.
 
 Cada estágio abaixo tem uma tag no git: `v1.0` é a versão em JavaScript
 puro, `v2.0` a migração para TypeScript, as versões `v2.x` seguintes são
-as melhorias, e as versões `v3.x` são a integração com o backend. Para ver o
-que mudou de um estágio para o outro, use `git diff`, por exemplo
-`git diff v2.0 v2.1` ou `git diff v2.4 v3.0`.
+as melhorias, as versões `v3.x` são a integração com o backend, e a `v4.0`
+reúne a autenticação e a nova camada de API. Os estágios 12 a 16 estão todos
+na `v4.0`, e cada um indica os commits que o compõem. Para ver o que mudou de
+um estágio para o outro, use `git diff`, por exemplo `git diff v2.0 v2.1`,
+`git diff v2.4 v3.0`, `git diff v3.4 v4.0` ou, para um estágio só,
+`git diff 58c1db2 2f7ab13`.
 
 ### 1. Manipulação do DOM com JavaScript puro
 
@@ -1007,6 +1012,544 @@ loadTasks();
   sozinho, e depois de editar uma tarefa clicar no texto deixava de marcar o
   checkbox.
 
+### 12. Respostas tipadas com `Result<T>` e uma camada de services
+
+*Versão `v4.0`, commit `58c1db2`. Trechos de `frontend/src/types.ts`, `frontend/src/api.ts`, `frontend/src/services/taskService.ts`, `frontend/src/deleteDialog.ts` e `frontend/src/todo.ts` nessa versão.*
+
+Até a `v3.4`, cada função de `api.ts` repetia o `fetch`, os cabeçalhos e o
+`JSON.stringify`, e devolvia o dado ou `null`. Quem chamava sabia *que* tinha
+dado errado, mas não *por quê*. O acesso à rede é reescrito em três camadas:
+`request` faz a requisição, `send` monta o corpo, e os *services* sabem as
+URLs.
+
+```typescript
+export type Success<T> = {
+  success: true,
+  data: T
+}
+
+export type Failure = {
+  success: false,
+  error: ApiError
+  
+}
+```
+
+```typescript
+export type Result<T> = Success<T> | Failure
+```
+
+```typescript
+    const body = response.status === 204 ? null : await response.json().catch(() => null)
+```
+
+```typescript
+  } catch (error) {
+    // Chegar aqui significa que não houve resposta HTTP nenhuma (servidor
+    // fora do ar, sem internet, CORS...). Por isso não existe um status real:
+    // usamos 0, o mesmo valor que o navegador usa nessa situação.
+    return {
+      success: false,
+      error: {
+        status: 0,
+        name: 'NETWORK_ERROR',
+        message: (error as Error).message
+      }
+    };
+  }
+```
+
+```typescript
+  let body: string | undefined;
+  if (data !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify({ data }); // o Strapi espera { data: {...} }
+  }
+  return request<TOutput>(url, { method, headers, body });
+}
+
+// TInput  = formato que ENVIAMOS (ex.: categoria como documentId)
+// TOutput = formato que RECEBEMOS (ex.: categoria como objeto completo)
+
+export async function getAll<TOutput>(
+  url: string,
+): Promise<Result<StrapiCollectionResponse<TOutput>>> {
+  return send<StrapiCollectionResponse<TOutput>>("GET", url);
+}
+
+export async function create<TInput, TOutput>(
+  url: string,
+  data: TInput,
+): Promise<Result<StrapiSingleResponse<TOutput>>> {
+  return send<StrapiSingleResponse<TOutput>>("POST", url, data);
+}
+```
+
+```typescript
+// O que ENVIAMOS ao Strapi para criar ou editar uma tarefa: sem id/documentId
+// (quem gera é o servidor) e com a categoria apenas pelo seu documentId.
+export type TaskInput = {
+  description: string;
+  done: boolean;
+  deadline: string | null;
+  category: string;
+};
+```
+
+```typescript
+// Converte o que recebemos (Task) no que enviamos (TaskInput).
+function toInput(task: Task): TaskInput {
+  return {
+    description: task.description,
+    done: task.done,
+    deadline: task.deadline,
+    category: task.category.documentId,
+  };
+}
+
+export async function getAll(): Promise<Result<StrapiCollectionResponse<Task>>> {
+  return api.getAll<Task>("/tasks?populate=category");
+}
+
+export async function create(input: TaskInput): Promise<Result<StrapiSingleResponse<Task>>> {
+  return api.create<TaskInput, Task>("/tasks?populate=category", input);
+}
+```
+
+```typescript
+    const result = await taskService.remove(taskToDeleteId)
+    if (result.success) {
+      document.getElementById(taskToDeleteId)?.remove()
+    } else {
+      showError(`Erro ao excluir tarefa: ${result.error.message}`)
+    }
+```
+
+```typescript
+      if (result.success) {
+        // A resposta já vem com a categoria completa (?populate=category).
+        taskList.appendChild(createTaskElement(result.data.data));
+        // Só limpa o campo se deu certo: em caso de erro, o usuário
+        // não perde o que digitou e pode tentar de novo.
+        descriptionInput.value = "";
+        submitButton.disabled = true;
+      } else {
+        showError(`Erro ao criar tarefa: ${result.error.message}`);
+      }
+```
+
+**Por que essa decisão?**
+* `Result<T>` é uma *discriminated union*: o campo `success` diz qual dos dois
+  formatos chegou. Antes de testar `result.success`, o TypeScript não deixa
+  ler `result.data` nem `result.error`. Com o retorno `T | null` da `v3.4`, o
+  erro chegava como `null`, sem mensagem. Com uma exceção, ele nem apareceria
+  no tipo da função.
+* A troca expôs um bug. `deleteTask` devolvia `boolean`, e `if (result)`
+  funcionava. Com `Result`, `result` é sempre um objeto, então `if (result)`
+  seria sempre verdadeiro e a tarefa sumiria da tela mesmo com o `DELETE`
+  recusado. O teste correto é `result.success`.
+* `request` nunca lança erro. Um 404 ou 500 vira `Failure` com o status real.
+  Uma falha de rede vira `status: 0`, e não um código inventado como `800`,
+  que não existe em HTTP. O `DELETE` do Strapi responde `204` sem corpo, e um
+  erro pode chegar em HTML: nos dois casos `response.json()` lançaria uma
+  exceção, por isso `body` fica `null`.
+* `send` é o único lugar que monta cabeçalho e corpo, então cada operação de
+  `api.ts` ocupa uma linha. Um *service* novo só escreve a URL e os tipos.
+* Uma tarefa não tem o mesmo formato na ida e na volta: o Strapi devolve a
+  categoria como objeto, mas recebe só o `documentId`. Com um único parâmetro
+  genérico, cada chamada teria que montar algo como
+  `Omit<Task, "category"> & { category: string }`. `TInput` e `TOutput`
+  nomeiam os dois lados, e `TaskInput` vira um tipo com nome próprio.
+* `toInput` faz a conversão num lugar só. O `...task` mandaria também `id` e
+  `documentId`, que quem gera é o servidor.
+* `todo.ts` não conhece mais nenhuma URL: chama `taskService.create(...)`. Os
+  services importam com `import * as api`, porque `taskService.getAll` e
+  `api.getAll` têm o mesmo nome, e o prefixo deixa claro qual é qual.
+* O `?populate=category` também vai no `POST` e no `PUT`, e a resposta já
+  traz a categoria. O trecho do estágio 8 que montava `newTask.category`
+  lendo a `<option>` deixa de ser necessário.
+* Todas as funções que devolvem Promise têm `async` e tipo de retorno
+  explícito, mesmo quando só repassam a Promise. O TypeScript inferiria o
+  tipo, mas escrevê-lo transforma a assinatura num contrato: se a chamada a
+  `api` mudar, o erro aparece no service, não em quem o usa.
+
+```typescript
+  // Texto vindo do usuário não vira nome de classe ("Vida pessoal" tem espaço
+  // e faria o classList.add lançar erro). Um atributo data-* aceita qualquer texto.
+  const categoryName = task.category.description;
+  categorySpan.dataset.category = categoryName.toLocaleLowerCase();
+  categorySpan.textContent = categoryName;
+```
+
+```css
+.category[data-category="lazer"] {
+  background-color: cornflowerblue;
+  color: white;
+}
+```
+
+* No mesmo commit, a categoria deixa de virar classe. O estágio 3 já avisava
+  que "Vida pessoal" quebraria o `classList.add`. Agora as categorias vêm do
+  backend e qualquer um pode cadastrar uma com espaço. O atributo `data-*`
+  aceita qualquer texto, e o CSS o seleciona com `[data-category="..."]`.
+
+### 13. Login com JWT
+
+*Versão `v4.0`, commit `58c1db2`, o mesmo do estágio anterior. Trechos de `frontend/src/login.ts`, `frontend/src/types.ts`, `frontend/src/api.ts`, `frontend/src/feedback.ts` e `frontend/vite.config.ts` nessa versão.*
+
+O site ganha uma segunda página, `login.html`. O usuário troca login e senha
+por um token, e o token passa a acompanhar todas as requisições.
+
+```typescript
+  const result = await request<StrapiLogin>('/auth/local', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ identifier, password})
+  })
+  if(result.success) {
+      const loginData = result.data;
+      if(loginData.jwt) {
+        localStorage.setItem('token', loginData.jwt)
+        window.location.assign("/")
+      }
+  } else {
+    console.log(result.error.message, result.error.name, result.error.status)
+    showError(result.error.message)
+  }
+```
+
+```typescript
+export type StrapiLogin = {
+  jwt: string,
+  user: {
+    id: number,
+    documentId: string,
+    username: string,
+    email: string
+  }
+} 
+```
+
+```typescript
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${localStorage.getItem("token")}`,
+  };
+```
+
+```typescript
+// Este módulo fica separado de dom.ts porque é usado por duas páginas
+// (index.html e login.html). Importar um módulo executa todo o código dele:
+// se o feedback estivesse em dom.ts, a página de login rodaria também os
+// querySelector da página de tarefas, procurando elementos que lá não existem.
+const feedbackAlert = document.getElementById('feedback') as HTMLParagraphElement;
+```
+
+```typescript
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      input: {
+        main: "index.html",
+        login: "login.html",
+      },
+    },
+  },
+});
+```
+
+**Por que essa decisão?**
+* O HTTP não guarda estado: o servidor não lembra quem fez a requisição
+  anterior. Por isso o token vai em *toda* requisição, no cabeçalho
+  `Authorization: Bearer <token>`, e `send` é o lugar certo para colocá-lo,
+  porque todas as chamadas dos services passam por ele.
+* `/auth/local` é a rota de login do plugin *Users & Permissions* do Strapi.
+  `identifier` aceita tanto o nome de usuário quanto o e-mail.
+* O token fica no `localStorage` para sobreviver ao recarregamento e à troca
+  de página. Isso tem um custo: qualquer script que rode na página consegue
+  lê-lo. É mais um motivo para o `textContent` do conceito 1.4:
+  um texto injetado na página (XSS) poderia roubar o token.
+* O login chama `request` direto, e não `send`. O corpo de `/auth/local` não
+  vai dentro de `{ data }`, e não há token para enviar antes do login.
+* `feedback.ts` sai de `dom.ts` porque as duas páginas mostram mensagens.
+  Importar um módulo executa todo o código dele, e `dom.ts` procuraria `<ul>`
+  e `<dialog>` numa página que não os tem. Os `as` esconderiam os `null`.
+* Sem `vite.config.ts`, o `vite build` só gera o `index.html`: cada página do
+  site precisa ser declarada como ponto de entrada.
+* Esta primeira versão ainda tem arestas. Sem token, o cabeçalho vira
+  `Bearer null`. Uma página sem login abre e mostra três erros. O
+  `if (loginData.jwt)` repete o que o tipo já garante, e o `console.log`
+  sobrou de depuração. O estágio 14 trata a sessão, e o 16 limpa o login.
+
+### 14. O ciclo da sessão: token opcional, proteção de rotas e logout
+
+*Versão `v4.0`, commits `8e05c97` a `2f7ab13`. Trechos de `frontend/src/api.ts` e `frontend/src/todo.ts` na versão `2f7ab13`.*
+
+O login existe, mas nada acontece quando ele falta ou expira. Este estágio
+fecha o ciclo: entrar, usar, expirar ou sair, e voltar ao login.
+
+```typescript
+  const headers: Record<string, string> = {};
+  // Sem token salvo, getItem devolve null e enviaríamos "Bearer null".
+  // Nesse caso, a requisição vai sem o cabeçalho, como um visitante.
+  const token = localStorage.getItem("token");
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+```
+
+```typescript
+  const result = await request<TOutput>(url, { method, headers, body });
+
+  // 401 = o servidor não reconheceu quem fez a requisição: sem token,
+  // token expirado ou inválido. O token salvo não serve mais, então
+  // apagamos e mandamos o usuário fazer login de novo.
+  // (Fica aqui e não em request() porque o login também usa request(),
+  // e lá um erro deve ser mostrado ao usuário, não redirecionado.)
+  if (!result.success && result.error.status === 401) {
+    localStorage.removeItem("token");
+    window.location.replace("/login.html");
+  }
+
+  return result;
+```
+
+```typescript
+// Sem token, não adianta carregar a página: todas as chamadas falhariam.
+// replace() (em vez de assign()) não deixa esta página no histórico,
+// então o botão "voltar" do login não traz o usuário de volta para cá.
+if (localStorage.getItem("token")) {
+  setupLogout();
+  setupTaskForm();
+  setupDeleteDialog();
+  loadCategories();
+  loadTasks();
+} else {
+  window.location.replace("/login.html");
+}
+
+// Para o frontend, "estar logado" é só ter o token salvo no navegador.
+// Sair, portanto, é apagar esse token.
+function setupLogout() {
+  logoutButton.addEventListener("click", () => {
+    localStorage.removeItem("token");
+    window.location.replace("/login.html");
+  });
+}
+```
+
+**Por que essa decisão?**
+* `localStorage.getItem` devolve `null` quando a chave não existe, e a
+  *template string* transforma isso no texto `"null"`. O Strapi recebia
+  `Bearer null` e tentava validar `"null"` como token. Sem o cabeçalho, a
+  requisição é tratada como de um visitante, com as permissões do papel
+  *Public*.
+* Ter um token não significa que ele vale. Em `backend/config/plugins.ts`,
+  `jwtManagement: 'refresh'` faz o Strapi emitir tokens de acesso de curta
+  duração. Quando o token expira, o servidor responde 401, e é `send` que
+  percebe, porque todas as chamadas autenticadas passam por ele.
+* O 401 fica em `send`, e não em `request`, porque o login também usa
+  `request`. Lá, uma senha errada deve aparecer como mensagem, não como
+  redirecionamento.
+* A verificação no topo de `todo.ts` cobre o caso que o 401 não cobre:
+  sem token, nem vale a pena montar a página e disparar três requisições
+  que vão falhar.
+* `location.replace` em vez de `location.assign`: `replace` troca a página
+  atual no histórico em vez de empilhar uma nova. Com `assign`, o "voltar" na
+  tela de login levaria de novo à página de tarefas, que mandaria de volta ao
+  login.
+* O logout só apaga o token do navegador. O servidor não guarda sessão, então
+  o token continua válido até expirar: quem o tivesse copiado ainda
+  conseguiria usá-lo. É a diferença entre uma sessão no servidor e um token
+  sem estado (*stateless*).
+
+### 15. Validação, feedback temporário e acessibilidade
+
+*Versão `v4.0`, commits `043d1ec` a `d416440`. Trechos de `frontend/src/todo.ts`, `frontend/src/feedback.ts`, `frontend/src/deleteDialog.ts`, `frontend/index.html`, `frontend/login.html` e `frontend/src/assets/todo.css` na versão `d416440`.*
+
+Três commits pequenos de revisão: a edição volta a recusar texto vazio, as
+mensagens somem sozinhas, e o HTML ganha estrutura e semântica.
+
+```typescript
+  async function saveEditing() {
+    const description = descriptionLabel.textContent.trim();
+    // A mesma regra do formulário de criação vale aqui: toda entrada
+    // de dados precisa ser validada, não só a primeira que escrevemos.
+    if (description.length === 0) {
+      showError("A descrição da tarefa não pode ficar vazia.");
+      return; // continua editando, para o usuário corrigir
+    }
+```
+
+```typescript
+const HIDE_AFTER_MS = 5000;
+let hideTimer: number | undefined;
+
+function showFeedback(message: string, type: 'error' | 'success') {
+  feedbackAlert.textContent = message;
+  feedbackAlert.classList.remove('hidden', 'error', 'success')
+  feedbackAlert.classList.add(type)
+
+  // Se uma mensagem anterior ainda estava agendada para sumir, cancelamos
+  // esse agendamento; senão ela esconderia a mensagem nova antes da hora.
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    feedbackAlert.classList.add('hidden');
+  }, HIDE_AFTER_MS);
+}
+```
+
+```html
+  <header>
+    <h1>Minhas tarefas</h1>
+    <button type="button" id="logoutButton">Sair</button>
+  </header>
+
+  <p class="alert hidden" id="feedback" role="alert"></p>
+
+  <form>
+    <fieldset>
+      <legend>Nova tarefa</legend>
+```
+
+```typescript
+  deleteDialog.showModal()
+```
+
+```html
+        Login: <input type="text" name="login" id="login" required autocomplete="username">
+```
+
+```css
+/* "body > header" e não só "header": o <dialog> também tem um <header>. */
+body > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+```
+
+**Por que essa decisão?**
+* O estágio 4 impedia descrição vazia na edição, mas essa regra se perdeu
+  quando o estágio 9 passou a gravar no servidor. Toda entrada de dados
+  precisa da mesma validação, não só o formulário de criação. Em vez de
+  descartar o texto, a edição continua aberta para o usuário corrigir.
+* `clearTimeout` antes do `setTimeout`: sem ele, duas mensagens seguidas
+  deixariam dois temporizadores vivos, e o primeiro esconderia a segunda
+  mensagem antes dos 5 segundos. O valor devolvido por `setTimeout` é o que
+  permite cancelá-lo depois. Esconder um *erro* sozinho tem um custo: quem lê
+  devagar pode não terminar de ler. É uma escolha a discutir.
+* `role="alert"` faz o leitor de tela anunciar a mensagem assim que o texto
+  muda, sem o usuário precisar procurá-la.
+* O `<h1>` vem antes do formulário e divide o `<header>` com o botão "Sair":
+  quem navega por títulos encontra primeiro o assunto da página. O
+  `<legend>` dá nome ao grupo de campos do `<fieldset>`, que antes não tinha
+  nenhum.
+* `showModal()` em vez de `show()`: o diálogo modal prende o foco, ganha um
+  fundo (`::backdrop`), fecha com Esc e deixa o resto da página inerte. Com
+  `show()`, o usuário podia clicar em outra tarefa com a confirmação aberta.
+* No login, `autocomplete="username"` e `"current-password"` dizem ao
+  gerenciador de senhas o que preencher. `required` dá validação sem
+  JavaScript, e `lang="pt-BR"` corrige o idioma, como o estágio 6 fez no
+  `index.html`. Some o `method="POST"`, que nunca era usado, porque o envio é
+  feito por `fetch`.
+
+### 16. Módulos por responsabilidade e configuração por ambiente
+
+*Versão `v4.0`, commits `29caffe` a `2d1d5b4`. Trechos de `frontend/src/taskItem.ts`, `frontend/src/todo.ts`, `frontend/src/api.ts`, `frontend/.env.example`, `frontend/src/vite-env.d.ts` e `frontend/src/login.ts` na versão `v4.0`.*
+
+O `todo.ts` volta a crescer, e o endereço da API está escrito no código. O
+desenho de cada tarefa vai para um módulo próprio, a URL vai para um arquivo
+de ambiente, e o login ganha o espelho da proteção de rotas.
+
+```typescript
+// Tudo o que é preciso para desenhar UMA tarefa na lista: o <li> com
+// checkbox, descrição, categoria, prazo e os botões de editar e excluir.
+// Só createTaskElement é exportada; as demais são detalhes internos.
+import type { Task } from "./types";
+import * as taskService from "./services/taskService";
+import { showError } from "./feedback";
+import { createDeleteButton } from "./deleteDialog";
+
+export function createTaskElement(task: Task): HTMLLIElement {
+```
+
+```typescript
+// O endereço da API muda entre ambientes (desenvolvimento, produção...),
+// então ele fica fora do código, no arquivo .env (veja .env.example).
+// O Vite só expõe ao navegador variáveis que começam com VITE_.
+const BASE_URL = import.meta.env.VITE_API_URL;
+```
+
+```bash
+# Copie este arquivo para .env e ajuste os valores.
+# O .env não vai para o git (cada máquina tem o seu); este exemplo vai.
+VITE_API_URL=http://localhost:1337/api
+```
+
+```typescript
+// Diz ao TypeScript quais variáveis de ambiente existem e seus tipos.
+// Sem isto, import.meta.env.VITE_API_URL teria o tipo any.
+interface ImportMetaEnv {
+  readonly VITE_API_URL: string;
+}
+```
+
+```typescript
+// Quem já tem token não precisa ver o login: vai direto para as tarefas.
+// (Se o token estiver expirado, a página de tarefas recebe 401 e manda
+// o usuário de volta para cá, já sem o token.)
+if (localStorage.getItem('token')) {
+  window.location.replace('/')
+}
+```
+
+```typescript
+  if (result.success) {
+    localStorage.setItem('token', result.data.jwt)
+    window.location.replace('/')
+  } else {
+    showError(result.error.message)
+  }
+```
+
+```typescript
+    const tasks = result.data.data;
+    for (const task of tasks) {
+      const newTask = createTaskElement(task);
+      taskList.appendChild(newTask);
+    }
+```
+
+**Por que essa decisão?**
+* `taskItem.ts` repete o que o estágio 11 fez com `deleteDialog.ts`: um
+  módulo por responsabilidade. `todo.ts` cai de 249 para 109 linhas e fica
+  só com a inicialização da página, o formulário e o carregamento.
+* Das quatro funções que foram para `taskItem.ts`, só `createTaskElement` é
+  exportada. `createEditButton`, `createTaskCheckbox` e `formatDate` ficam
+  internas: um módulo também serve para *esconder* detalhes, e quem o
+  importa não depende deles.
+* Com `git diff --color-moved 29caffe~1 29caffe`, o código movido aparece
+  numa cor diferente do código alterado. O commit só muda as funções de
+  lugar, e as limpezas vêm no commit seguinte, para o diff de cada um contar
+  uma história só.
+* O endereço da API muda de ambiente para ambiente, e o código não deveria
+  mudar junto. O `.env` fica fora do git, porque cada máquina tem o seu, e o
+  `.env.example` entra no git, como modelo. O prefixo `VITE_` existe por
+  segurança: só essas variáveis vão para o JavaScript entregue ao navegador.
+  Pelo mesmo motivo, nunca se coloca um segredo numa variável `VITE_`,
+  porque qualquer um poderia lê-lo no código da página.
+* Sem `vite-env.d.ts`, `import.meta.env.VITE_API_URL` teria o tipo `any`, e
+  um erro de digitação no nome passaria pelo compilador.
+* O redirecionamento no login é o espelho da proteção do estágio 14. Ele não
+  cria um ciclo com um token expirado: a página de tarefas recebe 401, apaga
+  o token e devolve o usuário para cá, agora sem token.
+* `if (loginData.jwt)`, `if (tasks)` e `if (categories)` desaparecem: o tipo
+  já garante que o `jwt` existe e que `data` é um array. Uma verificação sem
+  motivo ensina o leitor a desconfiar do tipo. `let` vira `const`, porque a
+  variável do laço nunca é reatribuída.
+
 ---
 
 ## 🛠️ Tecnologias Utilizadas
@@ -1022,8 +1565,13 @@ loadTasks();
   JavaScript final em `dist/`.
 * **Fetch API:** as requisições `GET`, `POST`, `PUT` e `DELETE` do frontend
   para o backend, com `async`/`await`.
+* **JWT e Web Storage:** o token devolvido pelo login fica no `localStorage`
+  e vai em cada requisição no cabeçalho `Authorization: Bearer`.
+* **Variáveis de ambiente do Vite:** o endereço da API vem de
+  `import.meta.env.VITE_API_URL`, definido no `.env`.
 * **Strapi 5:** backend que gera a API REST de tarefas e categorias a partir
-  dos *content-types* definidos em `schema.json`.
+  dos *content-types* definidos em `schema.json`, com login e permissões
+  pelo plugin *Users & Permissions*.
 * **SQLite:** banco local do Strapi, criado em `backend/.tmp/` e fora do git.
 
 ---
@@ -1049,17 +1597,25 @@ O repositório tem dois projetos independentes, cada um com seu
    npm install
    npm run develop
    ```
-   O painel abre em `http://localhost:1337/admin`. Crie o usuário
-   administrador, cadastre as categorias (ex.: Lazer, Estudo, Trabalho) e, em
-   *Settings → Users & Permissions → Roles → Public*, libere `find` em
-   *Category* e `find`, `create`, `update` e `delete` em *Task*.
-3. Suba o frontend (em outro terminal) e abra o endereço que ele mostrar
-   (normalmente `http://localhost:5173`):
+   O painel abre em `http://localhost:1337/admin`. No painel:
+   * crie o usuário administrador e cadastre as categorias (ex.: Lazer,
+     Estudo, Trabalho);
+   * em *Settings → Users & Permissions → Roles → Authenticated*, libere
+     `find` em *Category* e `find`, `create`, `update` e `delete` em *Task*;
+   * em *Content Manager → User*, crie um usuário para entrar no site, com
+     *confirmed* ligado e o papel *Authenticated*. Ele não é o mesmo
+     usuário do painel administrativo.
+3. Suba o frontend (em outro terminal). Na primeira vez, crie o `.env` a
+   partir do exemplo:
    ```bash
    cd frontend
+   cp .env.example .env
    npm install
    npm run dev
    ```
+   Abra o endereço que ele mostrar (normalmente `http://localhost:5173`).
+   Sem login, a página manda para `login.html`. Entre com o usuário criado
+   no passo anterior.
 4. Para verificar os tipos e gerar a versão final em `frontend/dist/`:
    ```bash
    npm run build
@@ -1082,11 +1638,31 @@ backend. Volte com `git checkout main`.
 * **Abra a aba *Network* do DevTools** e use a página: carregue, crie, edite,
   marque e exclua uma tarefa. Para cada ação, encontre a requisição, o método
   HTTP, o corpo enviado em `data` e a resposta do Strapi.
-* **Tire uma permissão da role *Public*** no painel do Strapi (por exemplo,
-  `delete` em *Task*), tente excluir uma tarefa e veja o status da resposta e
-  o que a página faz quando o `deleteTask` devolve `false`.
-* **Tire o `?populate=category`** de `loadTasks` e recarregue a página. Leia
-  o erro no console e compare a resposta do servidor na aba *Network*.
+* **Tire uma permissão da role *Authenticated*** no painel do Strapi (por
+  exemplo, `delete` em *Task*), tente excluir uma tarefa e veja o status da
+  resposta e a mensagem que a página mostra quando `taskService.remove`
+  devolve `success: false`.
+* **Tire o `?populate=category`** do `getAll` em
+  `frontend/src/services/taskService.ts` e recarregue a página. Leia o erro
+  no console e compare a resposta do servidor na aba *Network*.
+* **Abra a aba *Application* do DevTools** e encontre o `token` em *Local
+  Storage*. Apague-o e recarregue a página. Depois faça login de novo, troque
+  uma letra do token e use a página: veja o 401 na aba *Network* e o
+  redirecionamento feito por `send`.
+* **Decodifique o token no console:**
+  `JSON.parse(atob(localStorage.getItem("token").split(".")[1]))`. Compare
+  `iat` e `exp` para descobrir quanto tempo o token dura, e repare que nada
+  ali é secreto: o JWT é assinado, não criptografado.
+* **Leia `result.data` sem testar `result.success`** em qualquer função de
+  `todo.ts` e rode `npm run build`. Leia o erro e explique por que a
+  *discriminated union* o provoca.
+* **Pare o Strapi** com a página aberta e crie uma tarefa. Veja a mensagem
+  com `NETWORK_ERROR` e compare com a de um erro HTTP, como o 401.
+* **Entre com dois usuários diferentes**, um em cada navegador. Repare que
+  os dois veem as mesmas tarefas e pense em qual lado, frontend ou backend,
+  precisaria mudar para cada um ver só as suas.
+* **Renomeie o `.env`** e reinicie o `npm run dev`. Veja na aba *Network*
+  para onde as requisições passam a ir.
 * **Teste o seletor de id:** no console, rode
   `document.querySelector("#1abc")` e depois
   `document.getElementById("1abc")`. Compare com a correção do estágio 9.
