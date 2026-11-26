@@ -69,14 +69,12 @@ async function loadCategories(): Promise<void> {
   const result = await categoryService.getAll();
   if (result.success) {
     const categories = result.data.data;
-    if (categories) {
-      for (let category of categories) {
-        const option = createCategoryOption(
-          category.description,
-          category.documentId,
-        );
-        categorySelect.appendChild(option);
-      }
+    for (const category of categories) {
+      const option = createCategoryOption(
+        category.description,
+        category.documentId,
+      );
+      categorySelect.appendChild(option);
     }
   } else {
     showError(`Erro ao carregar categorias: ${result.error.message}`);
@@ -87,11 +85,9 @@ async function loadTasks(): Promise<void> {
   const result = await taskService.getAll();
   if (result.success) {
     const tasks = result.data.data;
-    if (tasks) {
-      for (let task of tasks) {
-        const newTask = createTaskElement(task);
-        taskList.appendChild(newTask);
-      }
+    for (const task of tasks) {
+      const newTask = createTaskElement(task);
+      taskList.appendChild(newTask);
     }
   } else {
     showError(`Erro ao carregar tarefas: ${result.error.message}`);
