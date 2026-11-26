@@ -51,3 +51,10 @@ li {
 .hidden {
   display: none;
 }
+
+/* "body > header" e não só "header": o <dialog> também tem um <header>. */
+body > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}

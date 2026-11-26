@@ -31,5 +31,5 @@ export function createDeleteButton(task: Task) {
 function openDeleteDialog(task: Task) {
   taskToDeleteId = task.documentId
   taskToDeleteSpan.textContent = task.description
-  deleteDialog.show()
+  deleteDialog.showModal()
 }
