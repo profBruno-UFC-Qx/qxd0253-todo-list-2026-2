@@ -204,10 +204,14 @@ function createEditButton(task: Task, descriptionLabel: HTMLLabelElement) {
   }
 
   async function saveEditing() {
-    const result = await taskService.update({
-      ...task,
-      description: descriptionLabel.textContent.trim(),
-    });
+    const description = descriptionLabel.textContent.trim();
+    // A mesma regra do formulário de criação vale aqui: toda entrada
+    // de dados precisa ser validada, não só a primeira que escrevemos.
+    if (description.length === 0) {
+      showError("A descrição da tarefa não pode ficar vazia.");
+      return; // continua editando, para o usuário corrigir
+    }
+    const result = await taskService.update({ ...task, description });
     if (result.success) {
       task.description = result.data.data.description;
       descriptionLabel.textContent = result.data.data.description;
