@@ -1,5 +1,5 @@
-import type { Category, Task } from "./types";
-import { fetchCollection, createTask, updateTask } from "./api";
+import * as taskService from "./services/taskService";
+import * as categoryService from "./services/categoryService";
 import {
   taskList,
   formElement,
@@ -7,41 +7,56 @@ import {
   descriptionInput,
   deadlineInput,
   submitButton,
+  logoutButton,
 } from "./dom";
-import { createDeleteButton, setupDeleteDialog } from "./deleteDialog";
+import { showError } from "./feedback";
+import { setupDeleteDialog } from "./deleteDialog";
+import { createTaskElement } from "./taskItem";
 
-setupTaskForm();
-setupDeleteDialog();
-loadCategories();
-loadTasks();
+// Sem token, não adianta carregar a página: todas as chamadas falhariam.
+// replace() (em vez de assign()) não deixa esta página no histórico,
+// então o botão "voltar" do login não traz o usuário de volta para cá.
+if (localStorage.getItem("token")) {
+  setupLogout();
+  setupTaskForm();
+  setupDeleteDialog();
+  loadCategories();
+  loadTasks();
+} else {
+  window.location.replace("/login.html");
+}
+
+// Para o frontend, "estar logado" é só ter o token salvo no navegador.
+// Sair, portanto, é apagar esse token.
+function setupLogout() {
+  logoutButton.addEventListener("click", () => {
+    localStorage.removeItem("token");
+    window.location.replace("/login.html");
+  });
+}
 
 function setupTaskForm() {
   formElement.addEventListener("submit", async (e) => {
     e.preventDefault();
     const description = descriptionInput.value.trim();
     if (description.length !== 0) {
-      const result = await createTask(
-        {
-          description,
-          deadline: deadlineInput.value,
-          done: false,
-        },
-        categorySelect.value,
-      );
+      const result = await taskService.create({
+        description,
+        deadline: deadlineInput.value || null,
+        done: false,
+        category: categorySelect.value,
+      });
 
-      if(result !== null) {
-        const newTask = result.data
-        //const option  = document.querySelector(`option[value=${categorySelect.value}]`) as HTMLOptionElement
-        //const option = document.querySelector('#mySelect option:checked')
-        const option = categorySelect.options[categorySelect.selectedIndex]
-        newTask.category = {
-          description: option.textContent,
-          documentId: categorySelect.value,
-        }
-        taskList.appendChild(createTaskElement(newTask))
+      if (result.success) {
+        // A resposta já vem com a categoria completa (?populate=category).
+        taskList.appendChild(createTaskElement(result.data.data));
+        // Só limpa o campo se deu certo: em caso de erro, o usuário
+        // não perde o que digitou e pode tentar de novo.
+        descriptionInput.value = "";
+        submitButton.disabled = true;
+      } else {
+        showError(`Erro ao criar tarefa: ${result.error.message}`);
       }
-      descriptionInput.value = "";
-      submitButton.disabled = true;
     }
   });
 
@@ -51,10 +66,10 @@ function setupTaskForm() {
 }
 
 async function loadCategories(): Promise<void> {
-  const result = await fetchCollection<Category>("/categories");
-  const categories = result?.data;
-  if (categories) {
-    for (let category of categories) {
+  const result = await categoryService.getAll();
+  if (result.success) {
+    const categories = result.data.data;
+    for (const category of categories) {
       const option = createCategoryOption(
         category.description,
         category.documentId,
@@ -62,18 +77,20 @@ async function loadCategories(): Promise<void> {
       categorySelect.appendChild(option);
     }
   } else {
-    window.alert("Erro ao carregar categorias");
+    showError(`Erro ao carregar categorias: ${result.error.message}`);
   }
 }
 
 async function loadTasks(): Promise<void> {
-  const result = await fetchCollection<Task>("/tasks?populate=category");
-  const tasks = result?.data;
-  if (tasks) {
-    for (let task of tasks) {
+  const result = await taskService.getAll();
+  if (result.success) {
+    const tasks = result.data.data;
+    for (const task of tasks) {
       const newTask = createTaskElement(task);
       taskList.appendChild(newTask);
     }
+  } else {
+    showError(`Erro ao carregar tarefas: ${result.error.message}`);
   }
 }
 
@@ -85,130 +102,4 @@ function createCategoryOption(
   newOption.textContent = description;
   newOption.value = id;
   return newOption;
-}
-
-
-
-function createTaskElement(task : Task): HTMLLIElement {
-  const listItem = document.createElement("li");
-  listItem.id = task.documentId
-
-  const taskId = `task-${task.documentId}`;
-  const taskCheckbox = createTaskCheckbox(taskId);
-  taskCheckbox.checked = task.done;
-  taskCheckbox.addEventListener("change", async () => {
-    const result = await updateTask({ ...task, done: taskCheckbox.checked })
-    if (result) {
-      task.done = result.data.done
-    } else {
-      taskCheckbox.checked = task.done // desfaz se o backend recusar
-    }
-  })
-
-  const descriptionLabel = document.createElement("label");
-  descriptionLabel.setAttribute("for", taskId);
-  descriptionLabel.textContent = task.description;
-
-  const categorySpan = document.createElement("span");
-  categorySpan.classList.add("category");
-  categorySpan.classList.add(task.category.description.toLocaleLowerCase());
-  categorySpan.textContent = task.category.description;
-
-  const deleteButton = createDeleteButton(task);
-  const editButton = createEditButton(task, descriptionLabel);
-
-  listItem.appendChild(taskCheckbox);
-  listItem.appendChild(descriptionLabel);
-  listItem.appendChild(categorySpan);
-
-  if (task.deadline) {
-    const deadlineTime = document.createElement("time");
-    deadlineTime.className = "deadline";
-    deadlineTime.dateTime = task.deadline;
-    deadlineTime.textContent = formatDate(task.deadline);
-    listItem.appendChild(deadlineTime);
-  }
-
-  const actions = document.createElement("span");
-  actions.className = "actions";
-  actions.appendChild(editButton);
-  actions.appendChild(deleteButton);
-
-  listItem.appendChild(actions);
-
-  return listItem;
-}
-
-function formatDate(isoDate: string) {
-  const [year, month, day] = isoDate.split("-");
-  return `${day}/${month}/${year}`;
-}
-
-function createTaskCheckbox(taskId: string) {
-  const taskCheckbox = document.createElement("input");
-  taskCheckbox.type = "checkbox";
-  taskCheckbox.id = taskId;
-
-  return taskCheckbox;
-}
-
-function createEditButton(task: Task, descriptionLabel: HTMLLabelElement) {
-  const editButton = document.createElement("button");
-  editButton.textContent = "✏️";
-  editButton.setAttribute("aria-label", "Editar tarefa");
-  let editing = false;
-  const taskId = `task-${task.documentId}`; // mesmo id do checkbox
-
-  function startEditing() {
-    editing = true;
-    editButton.textContent = "💾";
-    editButton.setAttribute("aria-label", "Salvar edição");
-    descriptionLabel.removeAttribute("for");
-    descriptionLabel.contentEditable = "plaintext-only";
-    descriptionLabel.focus();
-  }
-
-  function stopEditing() {
-    editing = false
-    editButton.textContent = "✏️";
-    editButton.setAttribute("aria-label", "Editar tarefa");
-    descriptionLabel.setAttribute("for", taskId);
-    descriptionLabel.contentEditable = "false";
-    descriptionLabel.textContent = task.description; // volta ao último texto salvo
-  }
-
-  async function saveEditing() {
-    const result = await updateTask({ ...task, description: descriptionLabel.textContent.trim() })
-    if(result) {
-      task.description = result.data.description
-      descriptionLabel.textContent = result.data.description
-    }
-    stopEditing();
-  }
-
-  editButton.addEventListener("mousedown", (e) => e.preventDefault());
-
-  editButton.addEventListener("click", async () => {
-    if (editing) {
-      await saveEditing();
-    } else {
-      startEditing();
-    }
-  });
-
-  descriptionLabel.addEventListener("keydown", async (e) => {
-    if (!editing) return;
-    if (e.key === "Enter") {
-      e.preventDefault(); // não insere quebra de linha
-      await saveEditing();
-    } else if (e.key === "Escape") {
-      stopEditing();
-    }
-  });
-
-  descriptionLabel.addEventListener("blur", () => {
-    if (editing) stopEditing();
-  });
-
-  return editButton;
 }

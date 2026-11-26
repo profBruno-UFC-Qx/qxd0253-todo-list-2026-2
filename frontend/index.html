@@ -11,8 +11,16 @@
 </head>
 
 <body>
+  <header>
+    <h1>Minhas tarefas</h1>
+    <button type="button" id="logoutButton">Sair</button>
+  </header>
+
+  <p class="alert hidden" id="feedback" role="alert"></p>
+
   <form>
     <fieldset>
+      <legend>Nova tarefa</legend>
       <label>
         Categoria:
         <select name="category" id="category">
@@ -27,13 +35,13 @@
       <input type="submit" disabled>
     </fieldset>
   </form>
-  <h1> Minhas tarefas</h1>
+
   <ul>
   </ul>
 
   <dialog id="deleteDialog">
     <header><button commandfor="deleteDialog" command="close">X</button></header>
-    <p>Tem certeza que deseja remover a tarefas <strong><span id="toDelete"></span></strong>?</p>
+    <p>Tem certeza que deseja remover a tarefa <strong><span id="toDelete"></span></strong>?</p>
     <footer>
       <button id="confirmButton">Sim</button> <button id="cancelButton" commandfor="deleteDialog" command="close">Não</button>
     </footer>
