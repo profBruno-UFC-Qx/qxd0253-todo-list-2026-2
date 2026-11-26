@@ -6,10 +6,20 @@ const feedbackAlert = document.getElementById('feedback') as HTMLParagraphElemen
 
 // toggle() inverte o estado atual da classe; aqui queremos um estado final
 // conhecido, por isso removemos tudo e adicionamos só o que interessa.
+const HIDE_AFTER_MS = 5000;
+let hideTimer: number | undefined;
+
 function showFeedback(message: string, type: 'error' | 'success') {
   feedbackAlert.textContent = message;
   feedbackAlert.classList.remove('hidden', 'error', 'success')
   feedbackAlert.classList.add(type)
+
+  // Se uma mensagem anterior ainda estava agendada para sumir, cancelamos
+  // esse agendamento; senão ela esconderia a mensagem nova antes da hora.
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    feedbackAlert.classList.add('hidden');
+  }, HIDE_AFTER_MS);
 }
 
 export function showError(message: string) {
