@@ -1,6 +1,9 @@
 import type { Result, StrapiCollectionResponse, StrapiSingleResponse } from "./types";
 
-const BASE_URL = "http://localhost:1337/api";
+// O endereço da API muda entre ambientes (desenvolvimento, produção...),
+// então ele fica fora do código, no arquivo .env (veja .env.example).
+// O Vite só expõe ao navegador variáveis que começam com VITE_.
+const BASE_URL = import.meta.env.VITE_API_URL;
 
 export async function request<T>(
   url: string, options? : RequestInit
